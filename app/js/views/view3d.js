@@ -205,13 +205,13 @@ export function mount(root) {
     speedSel, dtIn, h('button.btn.small', { onclick: () => { st.t = Date.now(); update(); } }, icon(ICONS.now), 'Now'), h('div.spacer'), whenEl);
 
   root.append(
-    h('div.pagehead', h('div', h('h1', '3D South Pole'), h('p', 'Real LOLA terrain lit by the Sun at the chosen moment. Shadows are traced toward the Sun through ±200 km of terrain, including the Moon\'s curvature and the Sun\'s disk size. Drag to orbit, scroll or pinch to zoom, right-drag or two fingers to pan.'))),
+    h('div.pagehead', h('div', h('h1', '3D South Pole'), h('p', 'Real LOLA terrain lit by the Sun at the chosen moment. Shadows are traced toward the Sun through ±200 km of terrain, including the Moon\'s curvature and the Sun\'s disk size. Detail is highest within 80 km of the pole (312 m cells), coarser beyond (800 m). Drag to orbit, scroll or pinch to zoom, right-drag or two fingers to pan.'))),
     h('div.card.flush', h('div', { style: { padding: '0' } }, box), timebar));
 
   // ------------------------------------------------------------------ WebGL
   const gl = cv.getContext('webgl2', { antialias: true, preserveDrawingBuffer: true });
   if (!gl) { box.replaceChildren(h('div.empty', { style: { color: '#dfe5f3' } }, 'This device does not support WebGL2, which the 3D view needs. The Explorer and Site Map work everywhere.')); return {}; }
-  let prog, fine, coarse, overlayTex, ready = false, fineData;
+  let prog, fine, coarse, overlayTex, ready = false, fineData, coarseData;
   const U = {};
   try {
     prog = gl.createProgram();
@@ -225,7 +225,7 @@ export function mount(root) {
   const fm = meta.dem3d_fine || { half_m: 80e3, n: 512 }, cm = meta.dem3d_coarse || { half_m: 200e3, n: 500 };
 
   Promise.all([loadDem('data/dem3d_fine.bin.gz', fm.n), loadDem('data/dem3d_coarse.bin.gz', cm.n)]).then(([f, c]) => {
-    fineData = f;
+    fineData = f; coarseData = c;
     fine = heightTex(gl, f); coarse = heightTex(gl, c);
     const img = new Image();
     img.onload = () => {
@@ -239,12 +239,14 @@ export function mount(root) {
     focusSite(false); update();
   }).catch((e) => { busy.replaceChildren(h('span', 'Terrain failed to load: ' + e.message)); });
 
-  function surfaceZ(x, y) {           // displayed height at (x, y) km from the fine tile (CPU copy)
+  function surfaceZ(x, y) {           // displayed height at (x, y) km: fine tile, else the wide coarse tile
     if (!fineData) return 0;
-    const n = fineData.n, half = fm.half_m / 1000;
-    const c = (x + half) / (2 * half) * (n - 1), r = (half - y) / (2 * half) * (n - 1);
-    if (c < 0 || r < 0 || c > n - 1 || r > n - 1) return 0;
-    const c0 = Math.floor(c), r0 = Math.floor(r), fc = c - c0, fr = r - r0, a = fineData.f;
+    const inFine = Math.max(Math.abs(x), Math.abs(y)) < fm.half_m / 1000;
+    const D = inFine ? fineData : coarseData, half = (inFine ? fm.half_m : cm.half_m) / 1000, n = D.n;
+    // texel centres: sample i covers [(i)..(i+1)] cells, matching the shader's texture lookup
+    const c = (x + half) / (2 * half) * n - 0.5, r = (half - y) / (2 * half) * n - 0.5;
+    if (c < 0 || r < 0 || c > n - 1 || r > n - 1) return -(x * x + y * y) / (2 * R_KM);
+    const c0 = Math.floor(c), r0 = Math.floor(r), fc = c - c0, fr = r - r0, a = D.f;
     const g = (i, j) => a[Math.min(n - 1, j) * n + Math.min(n - 1, i)];
     const hm = g(c0, r0) * (1 - fc) * (1 - fr) + g(c0 + 1, r0) * fc * (1 - fr) + g(c0, r0 + 1) * (1 - fc) * fr + g(c0 + 1, r0 + 1) * fc * fr;
     return hm / 1000 * st.exag - (x * x + y * y) / (2 * R_KM);
@@ -313,7 +315,7 @@ export function mount(root) {
     for (const s of store.sites) {
       if (s.lat > -84) continue;
       const [x, y] = llToXYkm(s.lat, s.lon);
-      if (Math.max(Math.abs(x), Math.abs(y)) > fm.half_m / 1000) continue;
+      if (Math.max(Math.abs(x), Math.abs(y)) > cm.half_m / 1000) continue;
       put([x, y, surfaceZ(x, y) + 0.05], `<span class="g3-pin"></span>${s.name}`, 'g3 g3-site' + (s.id === st.focus ? ' on' : ''));
     }
     labels.innerHTML = out.join('');
