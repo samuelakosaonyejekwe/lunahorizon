@@ -1,0 +1,28 @@
+{
+ "basemap": {
+  "half_m": 310000.0,
+  "px": 1400
+ },
+ "basemap_zoom": {
+  "half_m": 80000.0,
+  "px": 1400
+ },
+ "dem_near": {
+  "half_m": 303000.0,
+  "cell": 400.0,
+  "n": 1515
+ },
+ "dem_far": {
+  "half_m": 455000.0,
+  "cell": 1600.0,
+  "n": 569
+ },
+ "overlay": {
+  "half_m": 200000,
+  "cell": 1000,
+  "n": 400,
+  "year": 2027,
+  "step_h": 4,
+  "desc": "R = % Sun center visible, G = % Earth center visible, B = % both; 2 m height; 180-azimuth horizon from 240 m LOLA"
+ }
+}

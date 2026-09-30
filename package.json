@@ -1,0 +1,12 @@
+{
+  "name": "lunahorizon",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "LunaHorizon: CLPS Lunar Mission Browser (NASA Space Apps 2026)",
+  "scripts": {
+    "start": "python3 -m http.server 8080 --directory app",
+    "overlay": "node tools/overlay.mjs",
+    "test": "node tools/test.mjs"
+  }
+}
