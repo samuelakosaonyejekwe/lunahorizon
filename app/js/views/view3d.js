@@ -290,7 +290,7 @@ export function mount(root) {
     gl.uniform1f(U.uOverlayHalf, (meta.overlay?.half_m || 200e3) / 1000);
     gl.uniform1f(U.uExag, st.exag); gl.uniformMatrix4fv(U.uMVP, false, mvp);
     gl.uniform3fv(U.uSun, sun); gl.uniform1f(U.uSunR, sunR); gl.uniform1f(U.uSunUp, 1);
-    gl.uniform1f(U.uMode, overlayTex ? st.mode : 0); gl.uniform1f(U.uSteps, mobile ? 110 : 170);
+    gl.uniform1f(U.uMode, overlayTex ? st.mode : 0); gl.uniform1f(U.uSteps, window.__lh3dSteps || (mobile ? 110 : 170));
     // coarse ring first (with a hole where the fine tile is), then the fine tile
     gl.uniform1f(U.uHalf, cm.half_m / 1000); gl.uniform1f(U.uHole, fm.half_m / 1000 - 0.4);
     gl.bindVertexArray(coarseMesh.vao); gl.drawElements(gl.TRIANGLES, coarseMesh.count, gl.UNSIGNED_INT, 0);
@@ -302,21 +302,29 @@ export function mount(root) {
 
   function placeLabels(eye, e, sun) {
     const W = cv.clientWidth, H = cv.clientHeight;
-    const out = [];
-    const put = (p3, html, cls) => {
+    const out = [], boxes = [];
+    const put = (p3, html, cls, label) => {
       const p = project(mvp, p3);
       if (!p || Math.abs(p[0]) > 1.05 || Math.abs(p[1]) > 1.05) return;
-      out.push(`<div class="${cls}" style="position:absolute;left:${((p[0] + 1) / 2 * W).toFixed(1)}px;top:${((1 - p[1]) / 2 * H).toFixed(1)}px">${html}</div>`);
+      const x = (p[0] + 1) / 2 * W, y = (1 - p[1]) / 2 * H;
+      if (label) {                       // skip a site label that would overlap one already placed, or the control bar
+        if (y < 64) return;
+        const w = 16 + label.length * 7.2, bx = x - 6, by = y - 9;
+        if (boxes.some((q) => bx < q[0] + q[2] && bx + w > q[0] && by < q[1] + 18 && by + 18 > q[1])) return;
+        boxes.push([bx, by, w]);
+      }
+      out.push(`<div class="${cls}" style="position:absolute;left:${x.toFixed(1)}px;top:${y.toFixed(1)}px">${html}</div>`);
     };
     // Sun and Earth far along their directions
     put([eye[0] + sun[0] * 1500, eye[1] + sun[1] * 1500, eye[2] + sun[2] * 1500], '<span class="g3-sun"></span><b>Sun</b>', 'g3');
     const ed = norm(toPole(e.earth));
     put([eye[0] + ed[0] * 1500, eye[1] + ed[1] * 1500, eye[2] + ed[2] * 1500], '<span class="g3-earth"></span><b>Earth</b>', 'g3');
-    for (const s of store.sites) {
+    const order = [...store.sites].sort((a, b) => (b.id === st.focus) - (a.id === st.focus));   // focused site wins
+    for (const s of order) {
       if (s.lat > -84) continue;
       const [x, y] = llToXYkm(s.lat, s.lon);
       if (Math.max(Math.abs(x), Math.abs(y)) > cm.half_m / 1000) continue;
-      put([x, y, surfaceZ(x, y) + 0.05], `<span class="g3-pin"></span>${s.name}`, 'g3 g3-site' + (s.id === st.focus ? ' on' : ''));
+      put([x, y, surfaceZ(x, y) + 0.05], `<span class="g3-pin"></span>${s.name}`, 'g3 g3-site' + (s.id === st.focus ? ' on' : ''), s.name);
     }
     labels.innerHTML = out.join('');
   }
@@ -390,10 +398,12 @@ export function mount(root) {
   };
   document.addEventListener('keydown', onKey);
   const ro = new ResizeObserver(() => draw()); ro.observe(box);
+  // Scripting hook (demo recording, automated tests): read/set view state and render synchronously
+  window.__view3d = { st, update, renderNow: () => { if (ready) { cancelAnimationFrame(raf); raf = 0; update(); cancelAnimationFrame(raf); raf = 0; render(); gl.finish(); } return ready && !!overlayTex; } };
 
   return {
     unmount() {
-      cancelAnimationFrame(praf); cancelAnimationFrame(raf); ro.disconnect(); document.removeEventListener('keydown', onKey);
+      cancelAnimationFrame(praf); cancelAnimationFrame(raf); ro.disconnect(); document.removeEventListener('keydown', onKey); delete window.__view3d;
       gl.getExtension('WEBGL_lose_context')?.loseContext();
     },
   };
