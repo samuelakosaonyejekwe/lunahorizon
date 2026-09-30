@@ -106,7 +106,8 @@ export function mount(root) {
     const best = {};
     for (const [k, , , better] of COLS) {
       const vals = rows.map((r) => r.x[k]);
-      best[k] = better > 0 ? Math.max(...vals) : Math.min(...vals);
+      const hi = Math.max(...vals), lo = Math.min(...vals);
+      best[k] = hi - lo < 1e-9 ? NaN : better > 0 ? hi : lo; // a tie across every site has no winner
     }
     const c = colors();
     const colorOf = { sun: c.sun, earth: c.earth, both: c.both };
