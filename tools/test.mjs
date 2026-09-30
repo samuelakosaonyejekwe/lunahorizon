@@ -53,7 +53,21 @@ const w = windowScan(s, 24 * 3, 24, { minLitPct: 90, maxDarkH: 0, minCommPct: 90
 let feas = 0; for (let k = 0; k < w.n; k++) if (w.score[k] >= 0) feas++;
 ok(feas > 5 && feas < w.n, `equatorial 3-day windows: some feasible (daylight) and some not (${feas}/${w.n})`);
 
-// 7. Performance: one year hourly ephemeris
+// 7. Relay orbiters
+const { relayPosition, RELAYS } = await import('../app/js/astro.js');
+{
+  const o = RELAYS.elfo, T = o.periodH * 3600e3;
+  const apo = relayPosition('elfo', ephem(o.epoch + T / 2)); // half a period after perilune = apolune
+  const r = Math.hypot(...apo);
+  ok(Math.abs(r - o.a * (1 + o.e)) < 1 && apo[2] < 0, `frozen-orbit relay apolune is over the south (z ${apo[2].toFixed(0)} km, r ${r.toFixed(0)} km)`);
+  const farTab = ephemTable(t0, step, 24 * 30, 'nrho');
+  const farSide = summarize(siteSeries({ lat: -75, lon: 132.4, hz: null }, farTab, { ...DEFAULTS, relay: 'nrho', requireDSN: false }), { ...DEFAULTS, relay: 'nrho' });
+  ok(farSide.earthPct === 0 && farSide.commsPct > 30, `far-side Schrödinger: no Earth, but NRHO relay gives comms ${farSide.commsPct.toFixed(0)}% of the time`);
+  const none = summarize(siteSeries({ lat: -75, lon: 132.4, hz: null }, ephemTable(t0, step, 24 * 30), DEFAULTS), DEFAULTS);
+  ok(none.commsPct === none.dtePct, 'without a relay, comms equal direct-to-Earth');
+}
+
+// 8. Performance: one year hourly ephemeris
 const tp = performance.now(); ephemTable(t0, 3600e3, 8760); const ms = performance.now() - tp;
 ok(ms < 1500, `one year of hourly ephemeris in ${ms.toFixed(0)} ms`);
 

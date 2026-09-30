@@ -14,7 +14,7 @@ Outputs (app/data/):
   dem_far.bin.gz    int16 heights (m), 75°S cap resampled to 1600 m
   meta.json         grid geometry for all of the above
 """
-import json, sys, gzip, base64, math, datetime as dt
+import json, sys, os, gzip, base64, math, datetime as dt
 import numpy as np
 from PIL import Image
 
@@ -71,10 +71,51 @@ def height_ll(lat_deg, lon_deg):
     return float(height(np.array([x]), np.array([y]))[0])
 
 
-def horizon(lat_deg, lon_deg, mast=2.0, n_rays=1440, dmax=260e3, n_d=1400, fine=True, dmin=100.0):
+# ---------------------------------------------------------------- high-resolution windows (tools/fetch_windows.py)
+def load_windows(site_id):
+    wins = []
+    for res in ('5m', '20m'):
+        p = f'{ROOT}/raw/win/{site_id}_{res}.npz'
+        if os.path.exists(p):
+            z = np.load(p)
+            wins.append(dict(res=res, arr=z['dem'].astype(np.float32) * 0.5, l0=int(z['l0']), s0=int(z['s0']), off=float(z['off']), scale=float(z['scale'])))
+    return wins
+
+
+def sample_win(w, x, y):
+    s = w['off'] + x / w['scale'] - w['s0']
+    l = w['off'] - y / w['scale'] - w['l0']
+    H, W = w['arr'].shape
+    ok = (s >= 0) & (s < W - 1) & (l >= 0) & (l < H - 1)
+    s = np.where(ok, s, 0); l = np.where(ok, l, 0)
+    s0 = np.floor(s).astype(np.int64); l0 = np.floor(l).astype(np.int64)
+    fs = (s - s0).astype(np.float32); fl = (l - l0).astype(np.float32)
+    a = w['arr']
+    v = a[l0, s0] * (1 - fs) * (1 - fl) + a[l0, s0 + 1] * fs * (1 - fl) + a[l0 + 1, s0] * (1 - fs) * fl + a[l0 + 1, s0 + 1] * fs * fl
+    return np.where(ok, v, np.nan)
+
+
+def height_layered(x, y, wins):
+    h = np.full(np.shape(x), np.nan, dtype=np.float64)
+    for w in wins:                                  # finest first
+        miss = np.isnan(h)
+        if miss.any():
+            h = np.where(miss, sample_win(w, x, y), h)
+    miss = np.isnan(h)
+    if miss.any():
+        h = np.where(miss, height(x, y, True), h)
+    return h
+
+
+def horizon(lat_deg, lon_deg, mast=2.0, n_rays=1440, dmax=260e3, n_d=1400, fine=True, dmin=100.0, wins=None):
     """Terrain horizon elevation (deg) for n_rays azimuths (clockwise from north)."""
     phi1 = np.radians(lat_deg); lam1 = np.radians(lon_deg)
-    h0 = height_ll(lat_deg, lon_deg)
+    wins = wins or []
+    if wins:
+        dmin = 25.0 if wins[0]['res'] == '5m' else 60.0
+        n_d = 2200
+    x0, y0 = ll_to_xy(np.radians(np.array([lat_deg])), np.radians(np.array([lon_deg])))
+    h0 = float(height_layered(x0, y0, wins)[0]) if wins else height_ll(lat_deg, lon_deg)
     r1 = R_M + h0 + mast
     d = np.geomspace(dmin, dmax, n_d)
     delta = d / R_M
@@ -83,7 +124,7 @@ def horizon(lat_deg, lon_deg, mast=2.0, n_rays=1440, dmax=260e3, n_d=1400, fine=
     phi2 = np.arcsin(np.clip(sp2, -1, 1))
     lam2 = lam1 + np.arctan2(np.sin(th) * np.sin(delta) * np.cos(phi1), np.cos(delta) - np.sin(phi1) * sp2)
     x, y = ll_to_xy(phi2, lam2)
-    h = height(x, y, fine)
+    h = height_layered(x, y, wins) if wins else height(x, y, fine)
     r2 = R_M + h
     el = np.degrees(np.arctan2(r2 * np.cos(delta) - r1, r2 * np.sin(delta)))
     el = np.where(np.isnan(el), -90, el)
@@ -136,7 +177,8 @@ SITES = [
 
 
 def main():
-    meta = {}
+    meta = json.load(open(OUT + 'meta.json')) if os.path.exists(OUT + 'meta.json') else {}
+    prev = {s['id']: s for s in json.load(open(OUT + 'sites.json'))['sites']} if os.path.exists(OUT + 'sites.json') else {}
     # ------------------------------------------------ basemaps
     def hillshade(half_m, px, fine):
         xs = np.linspace(-half_m, half_m, px)
@@ -156,7 +198,6 @@ def main():
         g = np.clip(0.78 * hs + 0.22 * np.clip(hn, 0, 1), 0, 1)
         return (g * 255).astype(np.uint8), H
 
-    import os
     if not os.path.exists(OUT + 'basemap.jpg'):
       img, _ = hillshade(310e3, 1400, False)
       Image.fromarray(img).save(OUT + 'basemap.jpg', quality=78, optimize=True, progressive=True)
@@ -187,32 +228,39 @@ def main():
 
     # ------------------------------------------------ overlay maps
     grid = None
-    if not SKIP_MAP:
-        grid = overlay(meta)
+    if not SKIP_MAP and not os.path.exists(ROOT + '/raw/overlay_years.bin'):
+        grid = overlay(meta)   # single-year maps; the multi-year build (tools/build_years.py) supersedes them
 
     # ------------------------------------------------ sites
     out = []
     for s in SITES:
         s = dict(s)
-        if s['precision'] == 'region' and grid is not None:
+        if s['precision'] == 'region' and s['id'] in prev:
+            # keep the representative point chosen on the first build so results stay comparable
+            p0 = prev[s['id']]
+            s['lat'], s['lon'], s['approx_lat'], s['approx_lon'] = p0['lat'], p0['lon'], p0.get('approx_lat', s['lat']), p0.get('approx_lon', s['lon'])
+        elif s['precision'] == 'region' and grid is not None:
             s['lat'], s['lon'], s['approx_lat'], s['approx_lon'] = (*pick_best(grid, s), s['lat'], s['lon'])
         on_dem = s['lat'] <= -79.0
         if on_dem:
-            hz, h0 = horizon(s['lat'], s['lon'])
+            wins = load_windows(s['id'])
             k = np.arange(720)
-            hz720 = np.maximum.reduce([hz[(2 * k - 1) % 1440], hz[2 * k], hz[(2 * k + 1) % 1440]])
+            for mast, key in ((2.0, 'horizon'), (10.0, 'horizon10')):
+                hz, h0 = horizon(s['lat'], s['lon'], mast=mast, wins=wins)
+                hz720 = np.maximum.reduce([hz[(2 * k - 1) % 1440], hz[2 * k], hz[(2 * k + 1) % 1440]])
+                s[key] = base64.b64encode(np.round(hz720 * 100).astype('<i2').tobytes()).decode()
             s['elev_m'] = round(h0, 1)
-            s['horizon'] = base64.b64encode(np.round(hz720 * 100).astype('<i2').tobytes()).decode()
-            s['terrain'] = 'LOLA 80 m + 240 m'
+            s['terrain'] = 'LOLA ' + ' + '.join([w['res'].replace('m', ' m') for w in wins] + ['80 m', '240 m'])
         else:
             s['elev_m'] = None
             s['horizon'] = None
+            s['horizon10'] = None
             s['terrain'] = 'smooth sphere (outside polar DEM)'
         s.pop('search_km', None)
         s['lat'] = round(float(s['lat']), 5); s['lon'] = round(float(((s['lon'] + 180) % 360) - 180), 5)
         out.append(s)
         print(s['id'], s['lat'], s['lon'], s.get('elev_m'))
-    json.dump(dict(generated=dt.date.today().isoformat(), horizon_step_deg=0.5, mast_m=2.0, sites=out),
+    json.dump(dict(generated=dt.date.today().isoformat(), horizon_step_deg=0.5, mast_m=[2.0, 10.0], sites=out),
               open(OUT + 'sites.json', 'w'), separators=(',', ':'))
     json.dump(meta, open(OUT + 'meta.json', 'w'), indent=1)
 
@@ -231,7 +279,6 @@ def pick_best(grid, s):
 
 def overlay(meta):
     """Loads the screening maps computed by tools/overlay.mjs (parallel Node job) and writes overlay.png."""
-    import os
     if not os.path.exists(ROOT + '/raw/overlay_rgb.bin'):
         print('raw/overlay_rgb.bin missing: run `node tools/overlay.mjs` first; skipping overlay')
         return None

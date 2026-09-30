@@ -6,6 +6,7 @@ import { panorama } from '../charts.js';
 const FEATURES = [
   ['#/map', 'Site map', 'South-pole terrain with yearly sunlight and Earth-visibility maps. Tap any spot to trace its horizon.', '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v18M3 12h18"/>'],
   ['#/site', 'Horizon explorer', 'See the Sun and Earth move over the real skyline, scrub through time, and check power and DSN links.', '<path d="M2 18l6-6 4 3 5-6 5 5v4H2z"/><circle cx="17" cy="5" r="2"/>'],
+  ['#/3d', '3D South Pole', 'Fly over real terrain as the Sun moves, with shadows traced live on your graphics card.', '<path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 12l9-5M12 12v10M12 12L3 7"/>'],
   ['#/compare', 'Compare sites', 'Rank candidate sites by sunlight, Earth visibility, longest shadow and energy over any period.', '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'],
   ['#/planner', 'Find landing windows', 'Test every landing time against a full mission profile and get a feasibility calendar you can export.', '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M8 15l2 2 4-4"/>'],
   ['#/learn', 'Learn the physics', 'Why the lunar poles have long shadows and wobbling Earthrises, explained with live demos.', '<path d="M2 7l10-4 10 4-10 4z"/><path d="M6 9v6c3 3 9 3 12 0V9"/>'],

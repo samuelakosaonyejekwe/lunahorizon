@@ -164,11 +164,13 @@ function moonRotation(d, T) {
     [-ca * sd, -sa * sd, cd],
     [ca * cd, sa * cd, sd],
   ];
-  return [
+  const R = [
     [cw * m1[0][0] + sw * m1[1][0], cw * m1[0][1] + sw * m1[1][1], cw * m1[0][2] + sw * m1[1][2]],
     [-sw * m1[0][0] + cw * m1[1][0], -sw * m1[0][1] + cw * m1[1][1], -sw * m1[0][2] + cw * m1[1][2]],
     m1[2],
   ];
+  R.W = W;
+  return R;
 }
 
 /**
@@ -194,7 +196,65 @@ export function ephem(ms) {
   const earthSel = mulMV(R, [-moonJ[0], -moonJ[1], -moonJ[2]]);
   const Tu = (jdu - 2451545.0) / 36525;
   const gmst = norm360(280.46061837 + 360.98564736629 * (jdu - 2451545.0) + 0.000387933 * Tu * Tu - (Tu * Tu * Tu) / 38710000) * D2R;
-  return { sun: sunSel, earth: earthSel, moonEq: moonDate, gmst, sunEq: sunDate };
+  return { sun: sunSel, earth: earthSel, moonEq: moonDate, gmst, sunEq: sunDate, W: R.W, ms };
+}
+
+// ------------------------------------------------------------------ relay orbiters
+// Representative relay orbits (not official ephemerides), for coverage studies.
+//  elfo: elliptical lunar frozen orbit like ESA Lunar Pathfinder / Moonlight: 12 h period, i = 57.8°,
+//        e = 0.6, argument of perilune 90° so apolune (and the slow, high part of the orbit) sits over the south pole.
+//        Defined in the Moon's equatorial inertial frame; epoch 2027-01-01 00:00 UTC at perilune.
+//  nrho: Gateway's 9:2 near-rectilinear halo orbit, approximated as a Keplerian-timed ellipse fixed in the
+//        Moon's body frame (the NRHO co-rotates with the Earth–Moon line): perilune 3,200 km over the north pole,
+//        apolune 70,000 km over the south pole, tilted 10° toward the far side; period 6.5625 d.
+export const RELAYS = {
+  none: { name: 'None (direct-to-Earth only)' },
+  elfo: { name: 'Frozen-orbit relay (Lunar Pathfinder-class)', frame: 'inertial', periodH: 12, a: 6143, e: 0.6, i: 57.8, raan: 0, argp: 90, epoch: Date.UTC(2027, 0, 1) },
+  nrho: { name: 'Gateway NRHO (approximate)', frame: 'body', periodH: 6.5625 * 24, rp: MOON_R_KM + 3200, ra: MOON_R_KM + 70000, tiltDeg: 10, epoch: Date.UTC(2027, 0, 1) },
+};
+
+function keplerE(M, e) {
+  let E = e < 0.8 ? M : Math.PI;
+  for (let k = 0; k < 30; k++) { const d = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E)); E -= d; if (Math.abs(d) < 1e-12) break; }
+  return E;
+}
+
+/** Relay position in the lunar body-fixed frame (km from Moon center), or null */
+export function relayPosition(kind, eph) {
+  const o = RELAYS[kind];
+  if (!o || !o.frame) return null;
+  const n = 2 * Math.PI / (o.periodH * 3600000);
+  const M = ((n * (eph.ms - o.epoch)) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+  if (o.frame === 'inertial') {
+    const E = keplerE(M, o.e);
+    const xo = o.a * (Math.cos(E) - o.e), yo = o.a * Math.sqrt(1 - o.e * o.e) * Math.sin(E);
+    const cO = cos(o.raan * D2R), sO = sin(o.raan * D2R), ci = cos(o.i * D2R), si = sin(o.i * D2R), cw = cos(o.argp * D2R), sw = sin(o.argp * D2R);
+    // perifocal -> Moon equatorial inertial
+    const x = (cO * cw - sO * sw * ci) * xo + (-cO * sw - sO * cw * ci) * yo;
+    const y = (sO * cw + cO * sw * ci) * xo + (-sO * sw + cO * cw * ci) * yo;
+    const z = (sw * si) * xo + (cw * si) * yo;
+    // equatorial inertial -> body fixed: rotate by W about the pole
+    const cW = cos(eph.W), sW = sin(eph.W);
+    return [cW * x + sW * y, -sW * x + cW * y, z];
+  }
+  // body-fixed ellipse in the x–z plane: perilune toward +z (north), apolune toward -z tilted to the far side (-x)
+  const a = (o.rp + o.ra) / 2, e = (o.ra - o.rp) / (o.ra + o.rp);
+  const E = keplerE(M, e);
+  const xo = a * (Math.cos(E) - e), yo = a * Math.sqrt(1 - e * e) * Math.sin(E);
+  const t = o.tiltDeg * D2R;
+  const P = [sin(t), 0, cos(t)];   // unit vector to perilune (north, tilted toward near side)
+  const Q = [0, 1, 0];             // in-plane normal direction of travel
+  return [P[0] * xo + Q[0] * yo, P[1] * xo + Q[1] * yo, P[2] * xo + Q[2] * yo];
+}
+
+/** True when the straight line from the relay to Earth's center clears the Moon */
+export function relaySeesEarth(relay, earth) {
+  const dx = earth[0] - relay[0], dy = earth[1] - relay[1], dz = earth[2] - relay[2];
+  const L2 = dx * dx + dy * dy + dz * dz;
+  let t = -(relay[0] * dx + relay[1] * dy + relay[2] * dz) / L2;
+  t = Math.max(0, Math.min(1, t));
+  const px = relay[0] + t * dx, py = relay[1] + t * dy, pz = relay[2] + t * dz;
+  return px * px + py * py + pz * pz > (MOON_R_KM + 50) * (MOON_R_KM + 50);
 }
 
 /** Local frame at a lunar surface site. lat/lon in degrees (planetocentric, east-positive), h in meters above 1737.4 km */

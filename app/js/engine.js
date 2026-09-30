@@ -1,5 +1,5 @@
 // Visibility, power and communications engine. Pure functions over typed arrays, shared by the UI thread and the worker.
-import { ephem, siteFrame, topo, stationMoonElevation, DSN, earthPhase, diskFraction, AU_KM, SUN_R_KM, EARTH_R_KM, R2D } from './astro.js';
+import { ephem, siteFrame, topo, stationMoonElevation, DSN, earthPhase, diskFraction, relayPosition, relaySeesEarth, AU_KM, SUN_R_KM, EARTH_R_KM, R2D } from './astro.js';
 
 export const HOUR = 3600000;
 export const DAY = 86400000;
@@ -16,6 +16,8 @@ export const DEFAULTS = {
   panelEff: 0.29,       // conversion efficiency
   loadW: 100,           // constant platform load (W)
   batteryWh: 3000,      // usable capacity (Wh)
+  relay: 'none',        // none | elfo | nrho: relay orbiter available for communications
+  relayMaskDeg: 2,      // relay must clear the terrain by this much (deg)
 };
 
 /** Decode base64 int16 centi-degree horizon to Float32Array(720) */
@@ -53,17 +55,24 @@ export function horizonAt(hz, az) {
  * Shared ephemeris table: body-fixed Sun/Earth vectors, DSN elevations, Earth phase.
  * Computed once per time grid and reused for every site.
  */
-export function ephemTable(t0, stepMs, n) {
+export function ephemTable(t0, stepMs, n, relay = 'none') {
   const sun = new Float64Array(n * 3), earth = new Float64Array(n * 3);
   const dsn = new Float32Array(n * 3), phase = new Float32Array(n);
+  const rel = relay && relay !== 'none' ? new Float64Array(n * 3) : null;
+  const relEarth = rel ? new Uint8Array(n) : null;
   for (let i = 0; i < n; i++) {
     const e = ephem(t0 + i * stepMs);
+    if (rel) {
+      const r = relayPosition(relay, e);
+      rel[i * 3] = r[0]; rel[i * 3 + 1] = r[1]; rel[i * 3 + 2] = r[2];
+      relEarth[i] = relaySeesEarth(r, e.earth) ? 1 : 0;
+    }
     sun[i * 3] = e.sun[0]; sun[i * 3 + 1] = e.sun[1]; sun[i * 3 + 2] = e.sun[2];
     earth[i * 3] = e.earth[0]; earth[i * 3 + 1] = e.earth[1]; earth[i * 3 + 2] = e.earth[2];
     for (let k = 0; k < 3; k++) dsn[i * 3 + k] = stationMoonElevation(e, DSN[k]);
     phase[i] = earthPhase(e);
   }
-  return { t0, step: stepMs, n, sun, earth, dsn, phase };
+  return { t0, step: stepMs, n, sun, earth, dsn, phase, relay: rel ? relay : 'none', rel, relEarth };
 }
 
 /** Per-site time series from a shared ephemeris table */
@@ -78,6 +87,8 @@ export function siteSeries(site, tab, opts = DEFAULTS) {
     earthAz: new Float32Array(n), earthEl: new Float32Array(n), earthHz: new Float32Array(n), earthFrac: new Float32Array(n),
     lit: new Uint8Array(n), earthVis: new Uint8Array(n), dsnAny: new Uint8Array(n), dte: new Uint8Array(n),
     power: new Float32Array(n), soc: new Float32Array(n),
+    relayOn: !!tab.rel, relayAz: new Float32Array(n), relayEl: new Float32Array(n), relayHz: new Float32Array(n),
+    relayVis: new Uint8Array(n), relayLink: new Uint8Array(n), comms: new Uint8Array(n), commsLos: new Uint8Array(n),
   };
   const v = [0, 0, 0];
   const panelAz = o.panelAz * Math.PI / 180;
@@ -102,6 +113,20 @@ export function siteSeries(site, tab, opts = DEFAULTS) {
     const dsnAny = tab.dsn[i * 3] >= o.dsnMinEl || tab.dsn[i * 3 + 1] >= o.dsnMinEl || tab.dsn[i * 3 + 2] >= o.dsnMinEl;
     s.dsnAny[i] = dsnAny ? 1 : 0;
     s.dte[i] = s.earthVis[i] && (dsnAny || !o.requireDSN) ? 1 : 0;
+
+    // Relay orbiter: visible above the local terrain AND able to see Earth past the Moon
+    let relayUp = 0;
+    if (tab.rel) {
+      v[0] = tab.rel[i * 3]; v[1] = tab.rel[i * 3 + 1]; v[2] = tab.rel[i * 3 + 2];
+      const tr = topo(f, v);
+      const rhz = horizonAt(hz, tr.az);
+      s.relayAz[i] = tr.az; s.relayEl[i] = tr.el; s.relayHz[i] = rhz;
+      s.relayVis[i] = tr.el - rhz >= o.relayMaskDeg ? 1 : 0;
+      relayUp = s.relayVis[i] && tab.relEarth[i] ? 1 : 0;
+      s.relayLink[i] = relayUp && (dsnAny || !o.requireDSN) ? 1 : 0;
+    }
+    s.comms[i] = s.dte[i] | s.relayLink[i];
+    s.commsLos[i] = s.earthVis[i] | relayUp;
 
     // Solar power
     const flux = SOLAR_CONSTANT * (AU_KM / ts.dist) ** 2;
@@ -149,7 +174,7 @@ export function summarize(s, opts = DEFAULTS) {
   const h = s.step / HOUR;
   const both = new Uint8Array(s.n);
   for (let i = 0; i < s.n; i++) both[i] = s.lit[i] & s.earthVis[i];
-  const dark = longestRun(s.lit, 0), noEarth = longestRun(s.earthVis, 0), noDte = longestRun(s.dte, 0);
+  const dark = longestRun(s.lit, 0), noEarth = longestRun(s.earthVis, 0), noDte = longestRun(s.dte, 0), noComms = longestRun(s.comms, 0);
   let minSoc = Infinity, depleted = 0, maxSunEl = -90, minSunEl = 90, maxEarthEl = -90, minEarthEl = 90, pk = 0;
   for (let i = 0; i < s.n; i++) {
     if (s.soc[i] < minSoc) minSoc = s.soc[i];
@@ -171,6 +196,9 @@ export function summarize(s, opts = DEFAULTS) {
     longestDarkH: dark.len * h, longestDarkOpen: dark.open,
     longestNoEarthH: noEarth.len * h, longestNoEarthOpen: noEarth.open,
     longestNoDteH: noDte.len * h,
+    relayPct: mean(s.relayLink) * 100,
+    commsPct: mean(s.comms) * 100,
+    longestNoCommsH: noComms.len * h,
     darkPeriods: countRuns(s.lit, 0),
     meanPowerW: meanP, peakPowerW: pk,
     energyPerDayWh: meanP * 24,
@@ -200,7 +228,7 @@ export function windowScan(s, durSteps, startStep, c) {
   // prefix sums
   const pl = new Float64Array(s.n + 1), pe = new Float64Array(s.n + 1), pd = new Float64Array(s.n + 1), pp = new Float64Array(s.n + 1);
   for (let i = 0; i < s.n; i++) {
-    pl[i + 1] = pl[i] + s.lit[i]; pe[i + 1] = pe[i] + s.earthVis[i]; pd[i + 1] = pd[i] + s.dte[i]; pp[i + 1] = pp[i] + s.power[i];
+    pl[i + 1] = pl[i] + s.lit[i]; pe[i + 1] = pe[i] + s.commsLos[i]; pd[i + 1] = pd[i] + s.comms[i]; pp[i + 1] = pp[i] + s.power[i];
   }
   // run lengths ending at i (dark) to compute max gap inside a window in O(window) worst case but typically fast
   const out = {
@@ -209,13 +237,15 @@ export function windowScan(s, durSteps, startStep, c) {
     maxDarkH: new Float32Array(nStarts), maxNoCommH: new Float32Array(nStarts), meanPowerW: new Float32Array(nStarts),
     landOk: new Uint8Array(nStarts), fail: new Uint8Array(nStarts), minClear: new Float32Array(nStarts),
   };
-  const commFlag = c.useDSN ? s.dte : s.earthVis;
+  // Comms = direct-to-Earth or via the relay orbiter (when one is configured); with/without the DSN requirement
+  const commFlag = c.useDSN ? s.comms : s.commsLos;
   for (let k = 0; k < nStarts; k++) {
     const a = k * startStep, b = a + durSteps;
     const lit = (pl[b] - pl[a]) / durSteps, ear = (pe[b] - pe[a]) / durSteps, dte = (pd[b] - pd[a]) / durSteps;
     const dk = longestRun(s.lit, 0, a, b).len * h;
     const nc = longestRun(commFlag, 0, a, b).len * h;
-    const landOk = s.lit[a] && s.earthVis[a] && s.sunEl[a] >= c.landSunMin && s.sunEl[a] <= c.landSunMax ? 1 : 0;
+    // touchdown needs sunlight and a comms path (Earth, or the relay when one is configured)
+    const landOk = s.lit[a] && s.commsLos[a] && s.sunEl[a] >= c.landSunMin && s.sunEl[a] <= c.landSunMax ? 1 : 0;
     const comm = c.useDSN ? dte : ear;
     let fail = 0;
     if (lit * 100 < c.minLitPct) fail |= 1;
@@ -250,6 +280,15 @@ export function snapshot(site, ms, opts = DEFAULTS) {
   const earthFrac = diskFraction(te.el - ehz, earthR);
   const flux = SOLAR_CONSTANT * (AU_KM / ts.dist) ** 2;
   const elR = ts.el * Math.PI / 180;
+  let relay = null;
+  if (o.relay && o.relay !== 'none') {
+    const rp = relayPosition(o.relay, e);
+    const tr = topo(f, rp);
+    const rhz = horizonAt(site.hz, tr.az);
+    const vis = tr.el - rhz >= o.relayMaskDeg, seesEarth = relaySeesEarth(rp, e.earth);
+    const dsnUp = dsn.some((d) => d.el >= o.dsnMinEl);
+    relay = { az: tr.az, el: tr.el, hz: rhz, dist: tr.dist, alt: Math.hypot(...rp) - 1737.4, vis, seesEarth, link: vis && seesEarth && (dsnUp || !o.requireDSN) };
+  }
   let inc = o.panel === 'horizontal' ? Math.max(0, Math.sin(elR))
     : o.panel === 'vfixed' ? Math.max(0, Math.cos(elR) * Math.cos((ts.az - o.panelAz) * Math.PI / 180))
       : Math.max(0, Math.cos(elR));
@@ -261,5 +300,6 @@ export function snapshot(site, ms, opts = DEFAULTS) {
     power: flux * o.panelArea * o.panelEff * inc * sunFrac,
     lit: sunFrac >= o.sunMinFrac && sunFrac > 0,
     earthVis: te.el - ehz >= o.earthMarginDeg,
+    relay,
   };
 }

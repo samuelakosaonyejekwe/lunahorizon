@@ -151,6 +151,7 @@ export function panorama(container, getState, onHover) {
     // tracks (behind terrain)
     const drawTrack = (tr, col, dash) => {
       if (!tr) return;
+      ctx.save(); ctx.beginPath(); ctx.rect(left, top, pw, ph); ctx.clip();
       ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.setLineDash(dash); ctx.globalAlpha = 0.85;
       ctx.beginPath();
       let prevX = null;
@@ -160,9 +161,19 @@ export function panorama(container, getState, onHover) {
         prevX = x;
       }
       ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+      ctx.restore();
     };
     drawTrack(st.sunTrack, SUN_GLOW, [2, 3]);
     drawTrack(st.earthTrack, '#7fb6ff', [5, 3]);
+    drawTrack(st.relayTrack, '#b3a9ff', [1, 4]);
+    if (snap.relay && inView(snap.relay.az) && snap.relay.el < hi && snap.relay.el > lo) {
+      const rx = X(snap.relay.az), ry = Y(snap.relay.el);
+      ctx.save(); ctx.translate(rx, ry); ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = snap.relay.link ? '#b3a9ff' : 'rgba(179,169,255,.45)'; ctx.fillRect(-6, -6, 12, 12);
+      ctx.strokeStyle = '#1b1640'; ctx.lineWidth = 1.5; ctx.strokeRect(-6, -6, 12, 12); ctx.restore();
+      ctx.font = FONT(11, 700); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#d6d0ff';
+      ctx.fillText('Relay', rx + 10, ry);
+    }
 
     // bodies (drawn at true angular size, with a minimum)
     const sunR = Math.max(5, snap.sun.r * Math.min(pxPerDegX, pxPerDegY) * 1);
@@ -583,16 +594,24 @@ export function heatmap(container, getCfg, onPick) {
       ctx.fillText(lab === r.label ? lab : lab + '…', left - 8, y + rh / 2);
       for (let d = 0; d < cfg.nd; d++) {
         const v = r.values[d];
+        const [d0, d1] = cfg.domain || [0, 100];
         if (v < 0 || Number.isNaN(v)) {
           ctx.fillStyle = c.surface2;
-        } else ctx.fillStyle = rampColor(cfg.hue, v / 100, dark);
+        } else ctx.fillStyle = rampColor(cfg.hue, (v - d0) / Math.max(1e-9, d1 - d0), dark);
         ctx.fillRect(left + d * cw, y, Math.max(1, cw - (cw > 4 ? 1 : 0)), rh);
       }
     });
     // month labels
     ctx.font = FONT(10.5, 600); ctx.fillStyle = c.text3; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     let lastX = -1e9;
-    for (let d = 0; d < cfg.nd; d++) {
+    if (cfg.colLabels) {
+      ctx.textAlign = 'center';
+      cfg.colLabels.forEach((lab, d) => {
+        const x = left + (d + 0.5) * cw, w = ctx.measureText(lab).width;
+        if (x - w / 2 > lastX) { ctx.fillText(lab, x, 3); lastX = x + w / 2 + 6; }
+      });
+    }
+    for (let d = 0; d < (cfg.colLabels ? 0 : cfg.nd); d++) {
       const t = cfg.t0 + d * 86400000, dt = new Date(t);
       const first = settings.tz === 'utc' ? dt.getUTCDate() === 1 : dt.getDate() === 1;
       if (d === 0 || first || (cfg.nd <= 70 && d % 7 === 0)) {

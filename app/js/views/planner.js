@@ -1,5 +1,6 @@
 // Landing Window Finder: sweeps every candidate landing time over a search range and evaluates the full surface stay.
-import { h, store, getSite, onSettings, engineOpts, compute, siteMsg, fmtPct, fmtDur, fmtTime, toDateInput, fromDateInput,
+import { RELAYS } from '../astro.js';
+import { h, store, getSite, settings, onSettings, engineOpts, compute, siteMsg, fmtPct, fmtDur, fmtTime, toDateInput, fromDateInput,
   query, setQuery, isoMin, parseIso, download, icon, ICONS, groupTag, startOfDayUTC, toast } from '../ui.js';
 import { heatmap } from '../charts.js';
 import { HOUR, DAY } from '../engine.js';
@@ -8,7 +9,7 @@ const PROFILES = {
   artemis: { label: 'Artemis III crewed (6.5 d)', durH: 156, minLitPct: 100, maxDarkH: 0, minCommPct: 50, maxNoCommH: 48, useDSN: false, requireLanding: true, landSunMin: -2, landSunMax: 10,
     why: 'Crew surface stays need continuous sunlight for the whole stay; comms can partly go through relay, so DTE is a softer constraint.' },
   clps: { label: 'CLPS lander (10 d)', durH: 240, minLitPct: 70, maxDarkH: 48, minCommPct: 60, maxNoCommH: 72, useDSN: true, requireLanding: true, landSunMin: -2, landSunMax: 20,
-    why: 'Solar-powered landers must land in sunlight with Earth in view, then survive short shadows on battery.' },
+    why: 'Solar-powered landers must land in sunlight with a comms path (Earth, or a relay), then survive short shadows on battery.' },
   rover: { label: 'Long-duration rover (100 d)', durH: 2400, minLitPct: 55, maxDarkH: 110, minCommPct: 50, maxNoCommH: 200, useDSN: true, requireLanding: true, landSunMin: -2, landSunMax: 20,
     why: 'A VIPER-class rover must ride through several lunar days, so seasonal lighting dominates.' },
   custom: { label: 'Custom', durH: 168, minLitPct: 80, maxDarkH: 24, minCommPct: 50, maxNoCommH: 48, useDSN: true, requireLanding: true, landSunMin: -2, landSunMax: 20, why: 'Set your own constraints.' },
@@ -79,7 +80,7 @@ export function mount(root) {
   }
   function markCustom() { st.customized = true; }
   function renderConstraints() {
-    why.textContent = st.c.why || '';
+    why.textContent = (st.c.why || '') + (settings.relay && settings.relay !== 'none' ? ` Comms include the relay: ${RELAYS[settings.relay].name}.` : ' Comms are direct-to-Earth only; add a relay orbiter in Settings.');
     consBox.replaceChildren(
       slider('Surface stay', 'durH', 24, 2400, 6, ' h'),
       slider('Min sunlit time', 'minLitPct', 0, 100, 1, '%'),
@@ -88,7 +89,7 @@ export function mount(root) {
       slider('Max comms blackout', 'maxNoCommH', 0, 400, 1, ' h'),
       slider('Landing Sun elevation ≥', 'landSunMin', -2, 30, 0.5, '°'),
       slider('Landing Sun elevation ≤', 'landSunMax', 0, 90, 0.5, '°'),
-      h('div.field', { style: { gridColumn: 'span 2' } }, h('span', 'Options'), check('Comms needs a DSN station', 'useDSN'), check('Land in sunlight with Earth in view', 'requireLanding')),
+      h('div.field', { style: { gridColumn: 'span 2' } }, h('span', 'Options'), check('Comms needs a DSN station', 'useDSN'), check('Land in sunlight with a comms path (Earth or relay)', 'requireLanding')),
     );
   }
   function renderChips() {
@@ -207,7 +208,7 @@ export function mount(root) {
     download('landing_windows.ics', ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//LunaHorizon//Landing Windows//EN', ...ev, 'END:VCALENDAR'].join('\r\n'), 'text/calendar');
   }
 
-  const off = onSettings(() => run());
+  const off = onSettings(() => { renderConstraints(); run(); });
   renderConstraints(); renderChips(); run();
   return { unmount() { off(); heat.destroy(); } };
 }

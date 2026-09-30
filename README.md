@@ -18,7 +18,14 @@ There is no build step and no framework: plain ES modules and canvas.
 | **Explorer** | What does the sky look like from this site right now, or at any date? A 360° **horizon panorama** (or sky dome) shows the LOLA skyline, the Sun and Earth (with phase) and their ±15-day tracks. It includes a time machine (play, step, scrub), live readouts (elevation, % of disk visible, array power, net power, DSN complexes), next sunrise / Earthrise events, and a timeline of Sun and Earth clearance, sunlight / Earth / DSN / Sun+Earth flags, **solar power and battery state of charge**. Exports CSV and PNG. |
 | **Compare** | Which site is best for a given period? Ranking by sunlit %, Earth %, DTE %, Sun+Earth %, longest shadow, longest Earth loss, energy per day and minimum battery charge. Adds synchronized swimlanes and a **daily calendar heatmap**. One click jumps to any site at any moment. |
 | **Window Finder** | When can we land? It tests every landing time (every 3 h) against the full surface stay using mission profiles (Artemis III crewed, CLPS lander, long-duration rover, custom). The result is a **feasibility calendar**, a list of landing opportunities with reasons for rejection, and **.ics** and CSV export. |
-| **Learn** | Why the poles are extreme, terrain and PSRs, Earth libration, power and batteries, DTE and DSN, how to use the tool, methods and accuracy, and a glossary. It includes live demos. |
+| **3D South Pole** | WebGL2 terrain (±80 km detail, ±200 km context) lit by the Sun at any moment. Shadows are ray-traced toward the Sun on the GPU through true LOLA heights, including the Moon's curvature and the Sun's disk size; modes for live light, average yearly sunlight and Earth visibility; adjustable relief. |
+| **Learn** | Why the poles are extreme, terrain and PSRs, Earth libration, power and batteries, DTE, DSN and relays, how to use the tool, methods and accuracy, and a glossary. It includes live demos. |
+
+**Relay satellites.** Settings adds an optional relay orbiter: a Lunar Pathfinder-class frozen elliptical orbit (12 h) or an approximation of Gateway's NRHO (6.6 d). Communications then count when Earth or the relay is above the skyline and the relay can see Earth, so far-side and Earth-hidden sites show relay coverage everywhere: Explorer, Compare and Window Finder.
+
+**The 18.6-year cycle.** The maps cover every year from 2026 to 2044 (one full lunar nodal cycle), with a year picker, a cycle average and a year-to-year variability layer; Compare adds a 19-year table per site. Finding: sunlight at a spot typically swings only about 3 percentage points between years; the season within a year matters far more.
+
+**High-resolution horizons.** Site horizons layer LOLA 5 m data (within 4 km, sites south of 87.5°S) and 20 m data (within 15 km) over the 80 m and 240 m grids, fetched as small windows with HTTP range requests.
 
 Other features: shareable deep links for every view, UTC or local time, light and dark themes, keyboard shortcuts
 (←/→ hour, Shift for day, Space to play, N for now), configurable visibility rules (solar-disk fraction, antenna terrain
@@ -58,10 +65,12 @@ Any static host works (GitHub Pages, Netlify, S3). Serve the `app/` folder.
 
 ```bash
 # 1. Download LOLA DEMs into raw/ (see tools/build_data.py header for URLs)
-# 2. Screening maps (parallel, all CPU cores):
-node tools/overlay.mjs
-# 3. Site horizons, basemaps, browser DEMs:
-python3 tools/build_data.py
+# 2. High-resolution windows around each site (HTTP range requests, no full download):
+python3 tools/fetch_windows.py
+# 3. Screening maps for 2026–2044 (parallel, all CPU cores), then the map layers:
+node tools/overlay_years.mjs && python3 tools/build_years.py
+# 4. Site horizons, basemaps, browser DEMs, 3D tiles:
+python3 tools/build_data.py && python3 tools/build_3d.py
 ```
 
 ## Project layout

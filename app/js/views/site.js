@@ -2,6 +2,7 @@
 import { h, $, store, getSite, settings, onSettings, engineOpts, fmtTime, fmtDeg, fmtPct, fmtDur, fmtLL, compass, toInput, fromInput,
   query, setQuery, isoMin, parseIso, download, icon, ICONS, groupTag, toast, removeCustomSite } from '../ui.js';
 import { ephemTable, siteSeries, summarize, snapshot, HOUR, DAY } from '../engine.js';
+import { RELAYS } from '../astro.js';
 import { panorama, skyplot, timeline } from '../charts.js';
 
 const SPANS = [[7, '7 d'], [30, '30 d'], [90, '90 d'], [365, '1 yr']];
@@ -10,8 +11,9 @@ const stepFor = (span) => (span <= 7 ? 10 : span <= 30 ? 20 : span <= 90 ? 60 : 
 let tabCache = null;
 
 function getTable(t0, step, n) {
-  if (tabCache && tabCache.t0 === t0 && tabCache.step === step && tabCache.n === n) return tabCache;
-  tabCache = ephemTable(t0, step, n);
+  const relay = settings.relay || 'none';
+  if (tabCache && tabCache.t0 === t0 && tabCache.step === step && tabCache.n === n && tabCache.relay === relay) return tabCache;
+  tabCache = ephemTable(t0, step, n, relay);
   return tabCache;
 }
 
@@ -43,6 +45,7 @@ export function mount(root, params) {
       h('div.row', siteSel, groupTag(site)),
       h('p', fmtLL(site.lat, site.lon), site.elev_m != null ? ` · ${site.elev_m.toFixed(0)} m elevation` : '', ` · terrain: ${site.terrain}`)),
     h('div.row',
+      site.lat <= -84 ? h('a.btn.small', { href: `#/3d?site=${site.id}&t=${isoMin(st.t)}` }, '3D view') : null,
       h('a.btn.small', { href: `#/compare?sites=${site.id}` }, icon(ICONS.compare), 'Compare'),
       h('a.btn.small', { href: `#/planner?sites=${site.id}` }, icon(ICONS.cal), 'Find windows'),
       h('button.btn.small', { onclick: exportCsv, title: 'Download the time series as CSV' }, icon(ICONS.dl), 'CSV'),
@@ -102,6 +105,7 @@ export function mount(root, params) {
       center: st.center ?? defaultCenter(),
       sunTrack: r && trackFor(s.sunAz, s.sunEl, r[0], r[1]),
       earthTrack: r && trackFor(s.earthAz, s.earthEl, r[0], r[1]),
+      relayTrack: r && s.relayOn ? trackFor(s.relayAz, s.relayEl, Math.max(r[0], Math.round((st.t - s.t0) / s.step) - Math.round(12 * HOUR / s.step)), Math.min(r[1], Math.round((st.t - s.t0) / s.step) + Math.round(12 * HOUR / s.step))) : null,
       trackLabel: 'Tracks: ±15 days',
     };
   };
@@ -143,6 +147,7 @@ export function mount(root, params) {
         { type: 'flag', label: 'Earth in view', data: s.earthVis, color: c('--earth') },
         { type: 'flag', label: 'DSN station', data: s.dsnAny, color: c('--dsn') },
         { type: 'flag', label: 'Sun + Earth', data: s._both, color: c('--both') },
+        ...(s.relayOn ? [{ type: 'flag', label: 'Relay link', data: s.relayLink, color: c('--relay') }, { type: 'flag', label: 'Any comms', data: s.comms, color: c('--earth') }] : []),
         { type: 'line', label: 'Solar power', data: s.power, color: c('--sun'), baseline: 0, unit: ' W', min: 0, fmt: (v) => `${v.toFixed(0)} W` },
         { type: 'line', label: 'Battery', data: s._socPct, color: c('--both'), min: 0, max: 100, unit: '%', fmt: (v) => `${v.toFixed(0)}%` },
       ],
@@ -209,7 +214,8 @@ export function mount(root, params) {
       h('div.row', { style: { marginBottom: '12px' } },
         h('span.pill.' + (sunUp ? 'sun' : 'off'), sunUp ? 'Sunlit' : 'In shadow'),
         h('span.pill.' + (earthUp ? 'earth' : 'off'), earthUp ? 'Earth in view' : 'Earth hidden'),
-        h('span.pill.' + (dte ? 'both' : 'off'), dte ? 'DTE link possible' : 'No DTE link')),
+        h('span.pill.' + (dte ? 'both' : 'off'), dte ? 'DTE link possible' : 'No DTE link'),
+        sn.relay ? h('span.pill.' + (sn.relay.link ? 'relay' : 'off'), sn.relay.link ? 'Relay link up' : sn.relay.vis ? 'Relay up, no Earth/DSN' : 'Relay not in view') : null),
       h('div.kpis',
         kpi('Sun elevation', fmtDeg(sn.sun.el), `az ${sn.sun.az.toFixed(1)}° ${compass(sn.sun.az)} · horizon ${fmtDeg(sn.sun.hz)}`, c('--sun')),
         kpi('Solar disk visible', fmtPct(sn.sun.frac * 100), sn.sun.frac > 0 && sn.sun.frac < 1 ? 'partially behind terrain' : sn.sun.frac >= 1 ? 'fully clear of terrain' : 'blocked', c('--sun')),
@@ -217,6 +223,10 @@ export function mount(root, params) {
         kpi('Earth disk visible', fmtPct(sn.earth.frac * 100), `Earth phase ${fmtPct(sn.earth.phase * 100)} lit`, c('--earth')),
         kpi('Solar array output', `${sn.power.toFixed(0)} <small>W</small>`, `${settings.panelArea} m² · ${(settings.panelEff * 100).toFixed(0)}% · ${settings.panel === 'vtrack' ? 'tracking' : settings.panel === 'vfixed' ? 'fixed vertical' : 'horizontal'}`),
         kpi('Net power', `${(sn.power - settings.loadW).toFixed(0)} <small>W</small>`, `load ${settings.loadW} W · flux ${sn.sun.flux.toFixed(0)} W/m²`),
+        sn.relay ? h('div.kpi.wide', h('div.k', h('span.sw', { style: { background: c('--relay') } }), `Relay: ${RELAYS[settings.relay].name}`),
+          h('div.v', { html: `${fmtDeg(sn.relay.el, 1)} <small>elevation</small>` }),
+          h('div.s', `az ${sn.relay.az.toFixed(0)}° ${compass(sn.relay.az)} · ${Math.round(sn.relay.alt).toLocaleString()} km altitude`),
+          h('div.s', sn.relay.link ? 'Link available: relay above the skyline and in view of Earth' : !sn.relay.vis ? `Below the skyline (${fmtDeg(sn.relay.hz, 1)} ridge)` : !sn.relay.seesEarth ? 'Relay cannot see Earth right now' : 'No DSN station can see the Moon')) : null,
         h('div.kpi.wide', h('div.k', 'Deep Space Network: Moon elevation at each complex'),
           h('div.row', { style: { marginTop: '4px', gap: '6px' } }, sn.dsn.map((d) => h('span.pill.' + (d.el >= settings.dsnMinEl ? 'both' : 'off'), `${d.name} ${d.el.toFixed(0)}°`)))),
       ));
@@ -239,7 +249,8 @@ export function mount(root, params) {
       h('div.sitelist.evlist',
         row('Sunlight', nextChange(s.lit, ci), 'Sunrise over terrain', 'Sunset behind terrain', c('--sun')),
         row('Earth', nextChange(s.earthVis, ci), 'Earthrise', 'Earthset (DTE loss)', c('--earth')),
-        row('DTE', nextChange(s.dte, ci), 'DTE window opens', 'DTE window closes', c('--both'))));
+        row('DTE', nextChange(s.dte, ci), 'DTE window opens', 'DTE window closes', c('--both')),
+        s.relayOn ? row('Relay', nextChange(s.relayLink, ci), 'Relay link opens', 'Relay link closes', c('--relay')) : null));
   }
 
   function renderSummary() {
@@ -253,6 +264,7 @@ export function mount(root, params) {
         kpi('Earth in view', fmtPct(x.earthPct, 1), `longest blackout ${fmtDur(x.longestNoEarthH)}`, c('--earth')),
         kpi('DTE availability', fmtPct(x.dtePct, 1), settings.requireDSN ? `with DSN ≥${settings.dsnMinEl}°` : 'line of sight only', c('--earth')),
         kpi('Sun + Earth', fmtPct(x.bothPct, 1), 'power and comms together', c('--both')),
+        ...(st.series.relayOn ? [kpi('Comms with relay', fmtPct(x.commsPct, 1), `relay adds ${Math.max(0, x.commsPct - x.dtePct).toFixed(1)} pts · longest gap ${fmtDur(x.longestNoCommsH)}`, c('--relay'))] : []),
         kpi('Energy per day', `${(x.energyPerDayWh / 1000).toFixed(2)} <small>kWh</small>`, `mean ${x.meanPowerW.toFixed(0)} W · peak ${x.peakPowerW.toFixed(0)} W`),
         h('div.kpi.wide', h('div.k', 'Battery survival'),
           h('div.v', { html: `<span class="${x.depletedH > 0 ? 'no' : 'ok'}">${x.depletedH > 0 ? 'Depleted ' + fmtDur(x.depletedH) : 'Survives'}</span>` }),
@@ -266,7 +278,7 @@ export function mount(root, params) {
       h('p', site.note || ''),
       h('p.muted', { style: { fontSize: '13px' } },
         `Coordinates: ${fmtLL(site.lat, site.lon)} (${site.precision === 'published' ? 'published' : site.precision === 'region' ? 'representative point: the best-lit 1 km map cell near the approximate region center' : site.precision === 'custom' ? 'user defined' : 'feature center'}). Source: ${site.src || '—'}.`),
-      site.hz ? h('p.muted', { style: { fontSize: '13px' } }, `Terrain horizon traced over ${site.custom ? 'the 400 m / 1.6 km' : 'the 80 m / 240 m'} LOLA grids out to 260 km, 0.5° azimuth bins, 2 m observer height. Highest ridge: ${Math.max(...site.hz).toFixed(2)}°.`)
+      site.hz ? h('p.muted', { style: { fontSize: '13px' } }, `Terrain horizon traced over ${site.custom ? 'the 400 m / 1.6 km' : site.terrain.replace('LOLA ', '')} LOLA grids out to 260 km, 0.5° azimuth bins, ${site.hz2 ? settings.mastM : 2} m sensor height. Highest ridge: ${Math.max(...site.hz).toFixed(2)}°.`)
         : h('p.muted', { style: { fontSize: '13px' } }, 'Outside the polar DEM: the horizon is modeled as a smooth sphere, so local hills are not included.'),
       site.custom ? h('button.btn.small', { onclick: () => { removeCustomSite(site.id); toast('Custom site removed'); location.hash = '#/map'; } }, icon(ICONS.trash), 'Remove custom site') : null,
     );
@@ -292,15 +304,15 @@ export function mount(root, params) {
     else if (e.key === 'n' || e.key === 'N') seek(Date.now(), true);
   };
   document.addEventListener('keydown', onKey);
-  const offSettings = onSettings(() => { rebuild(); });
+  const offSettings = onSettings(() => { renderInfo(); rebuild(); });
 
   // ---------------------------------------------------------------- export
   function exportCsv() {
     const s = st.series;
-    const rows = ['time_utc,sun_az_deg,sun_el_deg,sun_horizon_deg,sun_visible_frac,earth_az_deg,earth_el_deg,earth_horizon_deg,earth_visible_frac,sunlit,earth_in_view,dsn_in_view,dte,power_w,battery_wh'];
+    const rows = ['time_utc,sun_az_deg,sun_el_deg,sun_horizon_deg,sun_visible_frac,earth_az_deg,earth_el_deg,earth_horizon_deg,earth_visible_frac,sunlit,earth_in_view,dsn_in_view,dte,relay_link,any_comms,power_w,battery_wh'];
     for (let i = 0; i < s.n; i++) {
       rows.push([new Date(s.t0 + i * s.step).toISOString(), s.sunAz[i].toFixed(3), s.sunEl[i].toFixed(4), s.sunHz[i].toFixed(3), s.sunFrac[i].toFixed(3),
-        s.earthAz[i].toFixed(3), s.earthEl[i].toFixed(4), s.earthHz[i].toFixed(3), s.earthFrac[i].toFixed(3), s.lit[i], s.earthVis[i], s.dsnAny[i], s.dte[i],
+        s.earthAz[i].toFixed(3), s.earthEl[i].toFixed(4), s.earthHz[i].toFixed(3), s.earthFrac[i].toFixed(3), s.lit[i], s.earthVis[i], s.dsnAny[i], s.dte[i], s.relayLink[i], s.comms[i],
         s.power[i].toFixed(1), s.soc[i].toFixed(0)].join(','));
     }
     download(`${site.id}_${fmtTime(s.t0, { dateOnly: true })}_${st.span}d.csv`, rows.join('\n'), 'text/csv');

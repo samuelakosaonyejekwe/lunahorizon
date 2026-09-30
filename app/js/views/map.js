@@ -6,12 +6,14 @@ const R_M = 1737400;
 const llToXY = (lat, lon) => { const la = lat * Math.PI / 180, lo = lon * Math.PI / 180; const rho = 2 * R_M * Math.tan(Math.PI / 4 + la / 2); return [rho * Math.sin(lo), rho * Math.cos(lo)]; };
 const xyToLL = (x, y) => { const rho = Math.hypot(x, y); return [(2 * Math.atan(rho / (2 * R_M)) - Math.PI / 2) * 180 / Math.PI, Math.atan2(x, y) * 180 / Math.PI]; };
 
-const LAYERS = [['none', 'Terrain'], ['sun', 'Sunlight'], ['earth', 'Earth view'], ['both', 'Sun + Earth']];
+const LAYERS = [['none', 'Terrain'], ['sun', 'Sunlight'], ['earth', 'Earth view'], ['both', 'Sun + Earth'], ['range', 'Year-to-year']];
+const RANGE_MAX = 8; // year-to-year swing shown up to this many percentage points (typical swing is ~3)
 // Colour ramps (sequential, one hue family each) as [t, r, g, b]
 const RAMPS = {
   sun: [[0, 20, 16, 48], [0.25, 120, 50, 90], [0.5, 230, 110, 50], [0.75, 255, 190, 60], [1, 255, 250, 200]],
   earth: [[0, 16, 20, 50], [0.35, 40, 90, 190], [0.7, 90, 170, 255], [1, 215, 240, 255]],
   both: [[0, 16, 26, 32], [0.35, 20, 110, 95], [0.7, 50, 205, 150], [1, 200, 255, 230]],
+  range: [[0, 20, 18, 40], [0.3, 90, 40, 120], [0.65, 215, 80, 150], [1, 255, 215, 235]],
 };
 function rampRGB(name, t) {
   const r = RAMPS[name];
@@ -33,14 +35,19 @@ function loadImg(src) {
 export function mount(root) {
   const meta = store.meta || {};
   const q = query();
-  const st = { layer: q.layer || 'sun', cx: 0, cy: 0, scale: null, sel: null, overlayData: null, overlayCanvases: {}, base: null, zoomImg: null, showLabels: true };
+  const st = { layer: q.layer || 'sun', year: q.year || 'mean', cx: 0, cy: 0, scale: null, sel: null, overlayData: null, rangeData: null, overlayCanvases: {}, base: null, zoomImg: null, showLabels: true };
+  const yrs = meta.overlay_years;
 
   const wrap = h('div.mapwrap');
-  const layerSeg = h('div.seg', LAYERS.map(([k, l]) => h('button', { class: st.layer === k ? 'on' : '', onclick: (e) => { st.layer = k; [...layerSeg.children].forEach((b) => b.classList.toggle('on', b === e.target)); setQuery({ layer: k }); legendUpdate(); map.redraw(); } }, l)));
+  const layerSeg = h('div.seg', LAYERS.map(([k, l]) => h('button', { class: st.layer === k ? 'on' : '', onclick: (e) => { st.layer = k; [...layerSeg.children].forEach((b) => b.classList.toggle('on', b === e.target)); setQuery({ layer: k, year: st.year === 'mean' ? null : st.year }); if (yearSel) yearSel.disabled = k === 'range'; legendUpdate(); map.redraw(); } }, l)));
   const labelsBtn = h('button.btn.small', { style: { background: 'rgba(8,12,24,.85)', color: '#dfe5f3', borderColor: 'rgba(255,255,255,.15)' }, onclick: () => { st.showLabels = !st.showLabels; map.redraw(); } }, 'Labels');
   const legend = h('div.maplegend');
   const card = h('div.mapcard', { style: { display: 'none' } });
-  wrap.append(h('div.maptools', layerSeg, labelsBtn), legend, card,
+  const yearSel = yrs ? h('select', { 'aria-label': 'Year', style: { width: 'auto', background: 'rgba(8,12,24,.85)', color: '#dfe5f3', borderColor: 'rgba(255,255,255,.15)' },
+    onchange: () => { st.year = yearSel.value; setQuery({ layer: st.layer, year: st.year === 'mean' ? null : st.year }); loadOverlay(); } },
+    h('option', { value: 'mean', selected: st.year === 'mean' }, `${yrs.year0}–${yrs.year0 + yrs.years - 1} average`),
+    Array.from({ length: yrs.years }, (_, k) => String(yrs.year0 + k)).map((y) => h('option', { value: y, selected: st.year === y }, y))) : null;
+  wrap.append(h('div.maptools', layerSeg, yearSel, labelsBtn), legend, card,
     h('div.mapzoom',
       h('button.btn', { 'aria-label': 'Zoom in', onclick: () => zoomAt(1.6) }, icon(ICONS.plus)),
       h('button.btn', { 'aria-label': 'Zoom out', onclick: () => zoomAt(1 / 1.6) }, icon(ICONS.minus)),
@@ -61,12 +68,18 @@ export function mount(root) {
   );
 
   root.append(
-    h('div.pagehead', h('div', h('h1', 'South Pole Site Map'), h('p', 'LOLA terrain around the south pole. Overlays show the share of 2027 in which each 1 km cell sees the Sun, the Earth, or both over its real terrain horizon. Tap anywhere to analyze that spot; pinch or scroll to zoom.'))),
+    h('div.pagehead', h('div', h('h1', 'South Pole Site Map'), h('p', 'LOLA terrain around the south pole. Overlays show the share of time each 1 km cell sees the Sun, the Earth, or both over its real terrain horizon, for any year of the 18.6-year lunar cycle (2026–2044) or their average. Tap anywhere to analyze that spot; pinch or scroll to zoom.'))),
     h('div.grid.cols-2', wrap, side));
 
   function legendUpdate() {
     if (st.layer === 'none') { legend.innerHTML = '<b>LOLA hillshade</b><br><span style="opacity:.75">Polar stereographic · 0° longitude (Earth-facing) up</span>'; return; }
-    const name = { sun: 'Sunlight: % of year', earth: 'Earth in view: % of year', both: 'Sun and Earth together: % of year' }[st.layer];
+    const when = !yrs ? '' : st.year === 'mean' ? ` (${yrs.year0}–${yrs.year0 + yrs.years - 1} average)` : ` (${st.year})`;
+    if (st.layer === 'range') {
+      legend.replaceChildren(h('b', `Year-to-year swing in sunlight, ${yrs ? yrs.year0 + '–' + (yrs.year0 + yrs.years - 1) : ''}`), h('div.ramp', { style: { background: rampCss('range') } }),
+        h('div.ends', h('span', '0 pts'), h('span', `${RANGE_MAX / 2}`), h('span', `${RANGE_MAX}+ pts`)));
+      return;
+    }
+    const name = { sun: 'Sunlight: % of time', earth: 'Earth in view: % of time', both: 'Sun and Earth together: % of time' }[st.layer] + when;
     legend.replaceChildren(h('b', name), h('div.ramp', { style: { background: rampCss(st.layer) } }), h('div.ends', h('span', '0%'), h('span', '50%'), h('span', '100%')));
   }
   legendUpdate();
@@ -79,20 +92,22 @@ export function mount(root) {
 
   // ---------------------------------------------------------------- overlay colouring
   function overlayCanvas(layer) {
-    if (st.overlayCanvases[layer]) return st.overlayCanvases[layer];
-    const src = st.overlayData; if (!src) return null;
+    const key = layer + '@' + (layer === 'range' ? '' : st.year);
+    if (st.overlayCanvases[key]) return st.overlayCanvases[key];
+    const src = layer === 'range' ? st.rangeData : st.overlayData; if (!src) return null;
     const { w, h: hh, data } = src;
     const cv = document.createElement('canvas'); cv.width = w; cv.height = hh;
     const cx = cv.getContext('2d');
     const out = cx.createImageData(w, hh);
-    const ch = layer === 'sun' ? 0 : layer === 'earth' ? 1 : 2;
+    const ch = layer === 'sun' || layer === 'range' ? 0 : layer === 'earth' ? 1 : 2;
+    const k = layer === 'range' ? 100 / RANGE_MAX : 1;
     for (let i = 0; i < w * hh; i++) {
-      const v = data[i * 4 + ch] / 255;
+      const v = Math.min(1, data[i * 4 + ch] / 255 * k);
       const [r, g, b] = rampRGB(layer, v);
       out.data[i * 4] = r; out.data[i * 4 + 1] = g; out.data[i * 4 + 2] = b; out.data[i * 4 + 3] = 255;
     }
     cx.putImageData(out, 0, 0);
-    st.overlayCanvases[layer] = cv;
+    st.overlayCanvases[key] = cv;
     return cv;
   }
   function overlayValue(x, y) {
@@ -101,7 +116,9 @@ export function mount(root) {
     const c = Math.floor((x + o.half_m) / o.cell), r = Math.floor((o.half_m - y) / o.cell);
     if (c < 0 || r < 0 || c >= d.w || r >= d.h) return null;
     const i = (r * d.w + c) * 4;
-    return { sun: d.data[i] / 2.55, earth: d.data[i + 1] / 2.55, both: d.data[i + 2] / 2.55 };
+    const rg = st.rangeData;
+    return { sun: d.data[i] / 2.55, earth: d.data[i + 1] / 2.55, both: d.data[i + 2] / 2.55,
+      sunSwing: rg ? rg.data[i] / 2.55 : null, bestYear: rg ? rg.data[i + 2] / 2.55 : null };
   }
 
   // ---------------------------------------------------------------- draw
@@ -270,7 +287,8 @@ export function mount(root) {
       h('div.row', { style: { justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'nowrap' } },
         h('div', { style: { minWidth: 0 } }, h('b', s.name || 'Selected location'), h('div.muted', { style: { fontSize: '12px' } }, fmtLL(s.lat, s.lon))),
         h('button.iconbtn', { 'aria-label': 'Close', onclick: () => { card.style.display = 'none'; st.sel = null; map.redraw(); }, html: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>' })),
-      v ? h('div', bar('Sunlit (2027)', v.sun, 'var(--sun)'), bar('Earth in view', v.earth, 'var(--earth)'), bar('Sun + Earth', v.both, 'var(--both)'),
+      v ? h('div', bar(`Sunlit (${st.year === 'mean' ? 'average year' : st.year})`, v.sun, 'var(--sun)'), bar('Earth in view', v.earth, 'var(--earth)'), bar('Sun + Earth', v.both, 'var(--both)'),
+        v.sunSwing != null ? h('div.muted', { style: { fontSize: '12px', margin: '4px 0' } }, `Sunlight varies by ${v.sunSwing.toFixed(0)} pts between years (best year ${v.bestYear.toFixed(0)}%).`) : null,
         h('div.muted', { style: { fontSize: '11px' } }, 'Map estimate at 1 km resolution; open the site for full detail.')) : h('p.muted', { style: { fontSize: '13px' } }, 'No overlay data here.'),
       h('div.row', { style: { marginTop: '8px' } },
         s.id ? h('a.btn.primary.small', { href: `#/site/${s.id}` }, 'Open explorer') : h('button.btn.primary.small', { onclick: () => analyze(s.lat, s.lon) }, icon(ICONS.pin), 'Analyze this spot'),
@@ -310,12 +328,19 @@ export function mount(root) {
 
   // ---------------------------------------------------------------- data
   loadImg('data/basemap.jpg').then((im) => { st.base = im; map.redraw(); }).catch(() => toast('Basemap failed to load'));
-  if (meta.overlay) loadImg('data/overlay.png').then((im) => {
+  const readImg = (src) => loadImg(src).then((im) => {
     const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight;
     const cx = c.getContext('2d', { willReadFrequently: true }); cx.drawImage(im, 0, 0);
-    st.overlayData = { w: c.width, h: c.height, data: cx.getImageData(0, 0, c.width, c.height).data };
-    map.redraw();
-  }).catch(() => {});
+    return { w: c.width, h: c.height, data: cx.getImageData(0, 0, c.width, c.height).data };
+  });
+  function loadOverlay() {
+    if (!meta.overlay) return;
+    const src = st.year === 'mean' || !yrs ? 'data/overlay.png' : `data/years/overlay_${st.year}.png`;
+    readImg(src).then((d) => { st.overlayData = d; legendUpdate(); map.redraw(); }).catch(() => toast('Map layer failed to load'));
+  }
+  loadOverlay();
+  if (yrs) readImg('data/overlay_range.png').then((d) => { st.rangeData = d; map.redraw(); }).catch(() => {});
+  if (yearSel) yearSel.disabled = st.layer === 'range';
 
   return { unmount() { map.destroy(); } };
 }

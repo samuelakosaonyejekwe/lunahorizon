@@ -1,5 +1,6 @@
 // App shell: router, settings dialog, theme, share, service worker.
 import { $, $$, h, settings, updateSettings, loadSites, toast } from './ui.js';
+import { RELAYS } from './astro.js';
 
 const ROUTES = {
   '': () => import('./views/home.js'),
@@ -8,8 +9,9 @@ const ROUTES = {
   compare: () => import('./views/compare.js'),
   planner: () => import('./views/planner.js'),
   learn: () => import('./views/learn.js'),
+  '3d': () => import('./views/view3d.js'),
 };
-const TITLES = { '': 'Home', map: 'Site Map', site: 'Explorer', compare: 'Compare Sites', planner: 'Landing Window Finder', learn: 'Learn' };
+const TITLES = { '': 'Home', map: 'Site Map', site: 'Explorer', compare: 'Compare Sites', planner: 'Landing Window Finder', learn: 'Learn', '3d': '3D South Pole' };
 
 let current = null, currentKey = null, navSeq = 0;
 const main = $('#main');
@@ -22,7 +24,9 @@ function parseHash() {
 
 async function route() {
   const { name, params } = parseHash();
-  const key = name + '/' + params.join('/');
+  // The whole hash is the key: in-page state changes use history.replaceState, which fires no hashchange,
+  // so a hashchange with a new query is a real navigation (a shared link, a button) and must remount.
+  const key = location.hash || '#/';
   if (key === currentKey && current) { current.update?.(params); return; }
   const loader = ROUTES[name] || ROUTES[''];
   const my = ++navSeq;
@@ -61,11 +65,19 @@ function openSettings() {
       ,
       h('fieldset', h('legend', 'Visibility rules'),
         h('div.formgrid',
+          h('label.field', h('span', 'Solar array & antenna height'), h('select', { onchange: (e) => updateSettings({ mastM: +e.target.value }) },
+            [[2, '2 m above ground (lander deck)'], [10, '10 m above ground (mast or tower)']].map(([v, l]) => h('option', { value: v, selected: settings.mastM === v }, l))),
+            h('small', 'Nearby slopes block a low Sun; a taller mast sees past them')),
           num('Sun counts as "up" at', 'sunMinFrac', 0.05, 1, 0.05, '', 'Fraction of the solar disk above terrain'),
           num('Earth terrain clearance', 'earthMarginDeg', 0, 3, 0.25, '°', 'Line-of-sight margin for the antenna'),
           num('DSN antenna mask', 'dsnMinEl', 0, 25, 1, '°', 'Min Moon elevation at a DSN station')),
         h('label.check', { style: { marginTop: '10px' } }, h('input', { type: 'checkbox', checked: settings.requireDSN, onchange: (e) => updateSettings({ requireDSN: e.target.checked }) }),
           'Direct-to-Earth requires a Deep Space Network station in view')),
+      h('fieldset', h('legend', 'Relay satellite'),
+        h('div.formgrid',
+          h('label.field', h('span', 'Relay orbiter'), sel('relay', Object.entries(RELAYS).map(([k, r]) => [k, r.name]))),
+          num('Relay terrain clearance', 'relayMaskDeg', 0, 10, 0.5, '°', 'Min angle above the skyline')),
+        h('p.muted', { style: { fontSize: '12px', margin: '8px 0 0' } }, 'Representative orbits for coverage studies, not official ephemerides. With a relay, communications count when either Earth or the relay (which must itself see Earth) is in view.')),
       h('fieldset', h('legend', 'Power system'),
         h('div.formgrid',
           h('label.field', h('span', 'Solar array'), sel('panel', [['vtrack', 'Vertical, Sun-tracking'], ['vfixed', 'Vertical, fixed azimuth'], ['horizontal', 'Horizontal (deck)']])),

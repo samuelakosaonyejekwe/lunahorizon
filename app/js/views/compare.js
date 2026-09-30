@@ -15,6 +15,8 @@ const COLS = [
   ['earthPct', 'Earth in view', (v) => fmtPct(v, 1), 1, 'earth'],
   ['dtePct', 'DTE avail.', (v) => fmtPct(v, 1), 1, 'earth'],
   ['bothPct', 'Sun + Earth', (v) => fmtPct(v, 1), 1, 'both'],
+  ['commsPct', 'Comms (DTE + relay)', (v) => fmtPct(v, 1), 1, 'earth'],
+  ['longestNoCommsH', 'Longest comms gap', fmtDur, -1, null],
   ['longestDarkH', 'Longest shadow', fmtDur, -1, null],
   ['longestNoEarthH', 'Longest Earth loss', fmtDur, -1, null],
   ['energyPerDayWh', 'Energy/day', (v) => `${(v / 1000).toFixed(2)} kWh`, 1, null],
@@ -40,8 +42,54 @@ export function mount(root) {
   const tableBox = h('div.tablewrap');
   const laneBox = h('div.chart', { style: { height: '300px' } });
   const heatBox = h('div.chart.heat', { style: { height: '280px' } });
-  const metricSeg = h('div.seg', [['lit', 'Sunlit'], ['earth', 'Earth'], ['dte', 'DTE'], ['both', 'Sun+Earth']].map(([k, l]) =>
+  const metricSeg = h('div.seg', [['lit', 'Sunlit'], ['earth', 'Earth'], ['dte', 'Comms'], ['both', 'Sun+Earth']].map(([k, l]) =>
     h('button', { class: k === st.metric ? 'on' : '', onclick: (e) => { st.metric = k; [...metricSeg.children].forEach((b) => b.classList.toggle('on', b === e.target)); save(); heat.redraw(); updRamp(); } }, l)));
+
+  // ---- 18.6-year cycle
+  const Y0 = 2026, NY = 19;
+  const cyc = { res: null, metric: 'sun', busy: false };
+  const cycBox = h('div.chart.heat', { style: { height: '220px' } });
+  const cycStatus = h('div');
+  const cycNote = h('p.muted', { style: { fontSize: '13px', margin: '8px 0 0' } });
+  const cycSeg = h('div.seg', [['sun', 'Sunlit'], ['earth', 'Earth'], ['both', 'Sun+Earth'], ['comms', 'Comms']].map(([k, l]) =>
+    h('button', { class: k === cyc.metric ? 'on' : '', onclick: (e) => { cyc.metric = k; [...cycSeg.children].forEach((b) => b.classList.toggle('on', b === e.target)); cycHeat.redraw(); cycSummary(); } }, l)));
+  const cycCard = h('div.card', { style: { marginTop: '16px' } },
+    h('header', h('h2', `Across the 18.6-year lunar cycle (${Y0}–${Y0 + NY - 1})`), h('div.spacer'), cycSeg),
+    h('p.muted', { style: { fontSize: '13px', margin: '0 0 10px' } }, 'The Moon\'s orbit precesses every 18.6 years, so some years are better than others. Each cell is one whole calendar year; colors are scaled to the range shown, so small differences stand out.'),
+    cycStatus, cycBox, cycNote);
+  const cycHeat = heatmap(cycBox, () => {
+    if (!cyc.res) return null;
+    const rows = cyc.res.map((r) => ({ id: r.id, label: getSite(r.id)?.name || r.id, values: r[cyc.metric], r }));
+    let lo = Infinity, hi = -Infinity;
+    for (const r of rows) for (const v of r.values) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (hi - lo < 1) { lo -= 0.5; hi += 0.5; }
+    return { t0: 0, nd: NY, hue: { sun: 38, earth: 214, both: 158, comms: 250 }[cyc.metric], domain: [lo, hi],
+      colLabels: Array.from({ length: NY }, (_, k) => String(Y0 + k)), rows,
+      cellTip: (row, d) => `<b>${row.label}</b> · ${Y0 + d}<br>Sunlit ${fmtPct(row.r.sun[d], 1)} · Earth ${fmtPct(row.r.earth[d], 1)}<br>Sun+Earth ${fmtPct(row.r.both[d], 1)} · Comms ${fmtPct(row.r.comms[d], 1)}<br>Longest shadow ${fmtDur(row.r.dark[d])}` };
+  }, (row, d) => { location.hash = `#/site/${row.id}?t=${Y0 + d}-01-01T00:00Z&span=365`; });
+  function cycSummary() {
+    if (!cyc.res) return;
+    const lines = cyc.res.map((r) => {
+      const v = [...r[cyc.metric]]; const mx = Math.max(...v), mn = Math.min(...v);
+      return { name: getSite(r.id)?.name || r.id, swing: mx - mn, best: Y0 + v.indexOf(mx), worst: Y0 + v.indexOf(mn) };
+    }).sort((a, b) => b.swing - a.swing);
+    const top = lines[0];
+    cycNote.textContent = top ? `Biggest swing: ${top.name}, ${top.swing.toFixed(1)} points between its best year (${top.best}) and worst (${top.worst}). Smallest: ${lines[lines.length - 1].name}, ${lines[lines.length - 1].swing.toFixed(1)} points.` : '';
+  }
+  async function runCycle() {
+    const sites = st.sites.map(getSite).filter(Boolean);
+    if (!sites.length) return;
+    const my = (cyc.run = (cyc.run || 0) + 1);
+    cycStatus.replaceChildren(h('div.busy', h('div.spinner'), h('span', 'Computing 19 years…')));
+    try {
+      const res = await compute({ type: 'years', sites: sites.map(siteMsg), opts: engineOpts(), year0: Y0, years: NY, stepH: 6 },
+        (m) => { const s = cycStatus.querySelector('.busy span'); if (s) s.textContent = m; });
+      if (my !== cyc.run) return;
+      cyc.res = res.results; cycStatus.replaceChildren();
+      cycBox.style.height = `${Math.max(90, sites.length * 25 + 26)}px`;
+      cycHeat.redraw(); cycSummary();
+    } catch (e) { cycStatus.replaceChildren(h('div.warnbox', '19-year analysis failed: ' + e.message)); }
+  }
 
   root.append(
     h('div.pagehead', h('div', h('h1', 'Compare landing sites'), h('p', 'Pick sites and a period. Every site shares one ephemeris run, so a year across ten sites takes seconds. Click any row, lane or cell to open that site at that moment.'))),
@@ -62,6 +110,7 @@ export function mount(root) {
       h('div.legend', h('span', h('i', { style: { background: 'var(--sun)' } }), 'Sunlit'), h('span', h('i', { style: { background: 'var(--earth)' } }), 'Earth in view'))), laneBox),
     h('div.card', h('header', h('h2', 'Daily calendar'), h('span.muted', { style: { fontSize: '13px' } }, '% of each UTC day'), h('div.spacer'), metricSeg), heatBox,
       h('div.legend', { style: { marginTop: '8px' } }, h('span', 'Low'), h('span', { style: { display: 'inline-block', width: '160px', height: '10px', borderRadius: '3px', background: 'linear-gradient(90deg, var(--surface-2), var(--accent))' }, id: 'heatramp' }), h('span', 'High'))),
+    cycCard,
   );
 
   function renderChips() {
@@ -87,7 +136,7 @@ export function mount(root) {
       rows: st.res.results.map((r) => ({ id: r.id, label: getSite(r.id)?.name || r.id, values: r.daily[key] })),
       cellTip: (row, d) => {
         const r = st.res.results.find((x) => x.id === row.id);
-        return `<b>${row.label}</b><br>${fmtTime(st.res.t0 + d * DAY, { dateOnly: true })}<br>Sunlit ${fmtPct(r.daily.lit[d])} · Earth ${fmtPct(r.daily.earth[d])}<br>DTE ${fmtPct(r.daily.dte[d])} · Sun+Earth ${fmtPct(r.daily.both[d])}<br>Mean power ${r.daily.power[d].toFixed(0)} W`;
+        return `<b>${row.label}</b><br>${fmtTime(st.res.t0 + d * DAY, { dateOnly: true })}<br>Sunlit ${fmtPct(r.daily.lit[d])} · Earth ${fmtPct(r.daily.earth[d])}<br>Comms ${fmtPct(r.daily.dte[d])} · Sun+Earth ${fmtPct(r.daily.both[d])}<br>Mean power ${r.daily.power[d].toFixed(0)} W`;
       },
     };
   }, (row, d) => { location.hash = `#/site/${row.id}?t=${isoMin(st.res.t0 + d * DAY + 12 * HOUR)}&span=30`; });
@@ -141,6 +190,7 @@ export function mount(root) {
       st.res = { ...res, t0: st.start, step, n };
       status.replaceChildren();
       renderTable(); lanes.redraw(); heat.redraw(); updRamp();
+      runCycle();
       laneBox.style.height = `${Math.max(120, sites.length * 30 + 30)}px`;
       heatBox.style.height = `${Math.max(90, sites.length * 25 + 26)}px`;
     } catch (e) {
@@ -159,5 +209,5 @@ export function mount(root) {
   const off = onSettings(() => run());
   renderChips();
   run();
-  return { unmount() { off(); lanes.destroy(); heat.destroy(); window.removeEventListener('themechange', updRamp); } };
+  return { unmount() { off(); lanes.destroy(); heat.destroy(); cycHeat.destroy(); window.removeEventListener('themechange', updRamp); } };
 }

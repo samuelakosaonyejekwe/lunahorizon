@@ -32,12 +32,17 @@ const SKEY = 'lh.settings';
 const load = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
 
-export const settings = { tz: 'utc', theme: 'auto', ...DEFAULTS, ...load(SKEY, {}) };
+export const settings = { tz: 'utc', theme: 'auto', mastM: 2, ...DEFAULTS, ...load(SKEY, {}) };
 const listeners = new Set();
 export function onSettings(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+/** Point every curated site at the horizon for the chosen sensor height (custom sites have one horizon) */
+function applyMast() {
+  for (const s of store.sites) if (s.hz2) s.hz = settings.mastM === 10 ? s.hz10 : s.hz2;
+}
 export function updateSettings(patch) {
   Object.assign(settings, patch);
   save(SKEY, settings);
+  if ('mastM' in patch) applyMast();
   listeners.forEach((fn) => fn(settings));
 }
 export const engineOpts = () => {
@@ -114,10 +119,11 @@ export async function loadSites() {
     fetch('data/meta.json').then((r) => r.json()).catch(() => null),
   ]);
   store.meta = meta;
-  const list = sj.sites.map((s) => ({ ...s, hz: decodeHorizon(s.horizon), horizon: undefined }));
+  const list = sj.sites.map((s) => { const hz2 = decodeHorizon(s.horizon); return { ...s, hz2, hz10: decodeHorizon(s.horizon10) || hz2, hz: hz2, horizon: undefined, horizon10: undefined }; });
   for (const c of load(CKEY, [])) list.push({ ...c, hz: decodeHorizon(c.horizon), horizon: undefined, custom: true, group: 'Custom' });
   store.sites = list;
   store.byId = new Map(list.map((s) => [s.id, s]));
+  applyMast();
   return list;
 }
 export function addCustomSite(site) {

@@ -21,8 +21,23 @@
   "half_m": 200000,
   "cell": 1000,
   "n": 400,
-  "year": 2027,
-  "step_h": 4,
-  "desc": "R = % Sun center visible, G = % Earth center visible, B = % both; 2 m height; 180-azimuth horizon from 240 m LOLA"
+  "year": "2026-2044 mean",
+  "step_h": 6,
+  "desc": "R = % Sun center visible, G = % Earth center visible, B = % both; 2 m height; mean of 19 years"
+ },
+ "dem3d_fine": {
+  "half_m": 80000.0,
+  "n": 512,
+  "cell": 312.5
+ },
+ "dem3d_coarse": {
+  "half_m": 200000.0,
+  "n": 500,
+  "cell": 800.0
+ },
+ "overlay_years": {
+  "year0": 2026,
+  "years": 19,
+  "step_h": 6
  }
 }

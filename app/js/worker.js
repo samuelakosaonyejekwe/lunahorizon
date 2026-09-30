@@ -87,7 +87,7 @@ function dailyAgg(s, t0, stepMs) {
   for (let d = 0; d < nd; d++) {
     let a = 0, b = 0, c = 0, e = 0, p = 0;
     for (let i = d * perDay; i < (d + 1) * perDay; i++) {
-      a += s.lit[i]; b += s.earthVis[i]; c += s.dte[i]; e += s.lit[i] & s.earthVis[i]; p += s.power[i];
+      a += s.lit[i]; b += s.earthVis[i]; c += s.comms[i]; e += s.lit[i] & s.earthVis[i]; p += s.power[i];
     }
     lit[d] = a / perDay * 100; earth[d] = b / perDay * 100; dte[d] = c / perDay * 100; both[d] = e / perDay * 100; power[d] = p / perDay;
   }
@@ -103,14 +103,14 @@ self.onmessage = async (ev) => {
     if (m.type === 'scan') {
       const { t0, step, n, sites, opts, window: win, lanes } = m;
       post({ type: 'progress', id: m.id, msg: 'Computing Sun & Earth ephemeris…' });
-      const tab = ephemTable(t0, step, n);
+      const tab = ephemTable(t0, step, n, opts.relay);
       const results = [];
       for (let i = 0; i < sites.length; i++) {
         post({ type: 'progress', id: m.id, msg: `Analyzing ${sites[i].name} (${i + 1}/${sites.length})…` });
         const s = siteSeries(sites[i], tab, opts);
         const r = { id: sites[i].id, stats: summarize(s, opts), daily: dailyAgg(s, t0, step) };
         if (lanes) {
-          r.lit = s.lit; r.earthVis = s.earthVis; r.dte = s.dte; r.sunFrac = s.sunFrac;
+          r.lit = s.lit; r.earthVis = s.earthVis; r.dte = s.dte; r.sunFrac = s.sunFrac; r.comms = s.comms; r.relayLink = s.relayLink;
         }
         if (win) {
           const durSteps = Math.round(win.durH * HOUR / step);
@@ -120,6 +120,20 @@ self.onmessage = async (ev) => {
         results.push(r);
       }
       post({ type: 'result', id: m.id, results, dsn: lanes ? tab.dsn : null });
+    } else if (m.type === 'years') {
+      // Annual statistics for each site across a run of years (one shared ephemeris per year)
+      const { sites, opts, year0, years, stepH } = m;
+      const out = sites.map(() => ({ sun: new Float32Array(years), earth: new Float32Array(years), both: new Float32Array(years), comms: new Float32Array(years), dark: new Float32Array(years) }));
+      for (let k = 0; k < years; k++) {
+        post({ type: 'progress', id: m.id, msg: `Year ${year0 + k} (${k + 1}/${years})…` });
+        const a = Date.UTC(year0 + k, 0, 1), b = Date.UTC(year0 + k + 1, 0, 1), step = stepH * HOUR;
+        const tab = ephemTable(a, step, Math.round((b - a) / step), opts.relay);
+        sites.forEach((site, i) => {
+          const x = summarize(siteSeries(site, tab, opts), opts);
+          out[i].sun[k] = x.sunPct; out[i].earth[k] = x.earthPct; out[i].both[k] = x.bothPct; out[i].comms[k] = x.commsPct; out[i].dark[k] = x.longestDarkH;
+        });
+      }
+      post({ type: 'result', id: m.id, results: sites.map((s, i) => ({ id: s.id, ...out[i] })) });
     } else if (m.type === 'horizon') {
       await ensureDems(m.base, m.meta);
       const { hz, h0 } = computeHorizon(m.lat, m.lon, m.mast || 2);
