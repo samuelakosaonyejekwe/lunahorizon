@@ -129,6 +129,9 @@ export function mount(root) {
     if (st.base) {
       const [x0, y0] = toScreen(-bm.half_m, bm.half_m, W, H);
       ctx.drawImage(st.base, x0, y0, 2 * bm.half_m * st.scale, 2 * bm.half_m * st.scale);
+    } else {
+      ctx.fillStyle = 'rgba(223,229,243,.75)'; ctx.font = '600 15px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('Loading LOLA terrain map…', W / 2, H / 2 + 40);
     }
     const zm = meta.basemap_zoom;
     if (zm && st.scale * 2 * bm.half_m / (meta.basemap?.px || 1400) > 1.5) {

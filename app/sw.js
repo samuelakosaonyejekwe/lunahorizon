@@ -1,6 +1,6 @@
 // Offline support. App code: network-first, so updates show up immediately.
 // Data: cache-first, since it is large and immutable per version.
-const VERSION = 'lh-v2';
+const VERSION = 'lh-v3';
 const SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/ui.js', 'js/astro.js', 'js/engine.js', 'js/charts.js', 'js/worker.js',
   'js/views/home.js', 'js/views/map.js', 'js/views/site.js', 'js/views/compare.js', 'js/views/planner.js', 'js/views/learn.js', 'js/views/view3d.js',
   'data/sites.json', 'data/meta.json', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];

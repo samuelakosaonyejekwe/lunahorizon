@@ -2,25 +2,59 @@
 import { ephemTable, siteSeries, summarize, windowScan, HOUR, DAY } from './engine.js';
 
 const R_M = 1737400;
-let dems = null;
 let curId = 0;
 
-async function loadDem(url) {
+/** Fetch a gzip file, reporting compressed bytes as they arrive; returns the decompressed bytes */
+async function fetchGz(url, onBytes) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error('DEM download failed: ' + res.status);
-  let buf;
-  if ('DecompressionStream' in self) {
-    buf = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
-  } else throw new Error('This browser cannot decompress terrain data (DecompressionStream missing).');
-  return new Int16Array(buf);
+  if (!res.ok) throw new Error('Terrain download failed: ' + res.status);
+  if (!('DecompressionStream' in self)) throw new Error('This browser cannot decompress terrain data (DecompressionStream missing).');
+  const reader = res.body.getReader(), chunks = [];
+  for (;;) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); onBytes(value.length); }
+  return new Response(new Blob(chunks).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
 }
 
-async function ensureDems(base, meta) {
-  if (dems) return dems;
-  post({ type: 'progress', id: curId, msg: 'Downloading LOLA terrain…' });
-  const [near, far] = await Promise.all([loadDem(base + 'data/dem_near.bin.gz'), loadDem(base + 'data/dem_far.bin.gz')]);
-  dems = [{ a: near, ...meta.dem_near }, { a: far, ...meta.dem_far }];
-  return dems;
+const NEAR_KM = 100;            // fine 400 m terrain is fetched within this radius of the tapped spot; beyond it the 1.6 km grid
+let farG = null, nearG = null;
+const haveTiles = new Set();
+
+/** Make sure the coarse far-field grid and the fine tiles around (lat, lon) are loaded; download only what is missing */
+async function ensureTerrain(base, meta, lat, lon, nearKm = NEAR_KM) {
+  const tm = meta.dem_near_tiles;
+  if (!nearG) nearG = { a: new Int16Array(tm.n * tm.n).fill(-32768), half_m: tm.half_m, cell: tm.cell, n: tm.n };
+  const [px, py] = llToXY(lat * Math.PI / 180, lon * Math.PI / 180);
+  const span = tm.tile * tm.cell, want = [];
+  for (let r = 0; r < tm.rows; r++) for (let c = 0; c < tm.rows; c++) {
+    const x0 = -tm.half_m + c * span, x1 = x0 + span, y1 = tm.half_m - r * span, y0 = y1 - span;
+    const dx = Math.max(x0 - px, 0, px - x1), dy = Math.max(y0 - py, 0, py - y1);
+    if (Math.hypot(dx, dy) <= nearKm * 1000 && !haveTiles.has(r * 1000 + c)) want.push([r, c]);
+  }
+  const jobs = want.length + (farG ? 0 : 1);
+  if (!jobs) return;
+  // progress by compressed bytes (sizes come from meta.json), so one large file does not stall the percentage
+  const total = want.reduce((a, [r, c]) => a + (tm.bytes?.[r * tm.rows + c] || 30000), 0) + (farG ? 0 : (meta.dem_far.bytes || 560000));
+  let done = 0, bytes = 0, lastMsg = 0;
+  const report = (force) => {
+    const now = Date.now();
+    if (!force && now - lastMsg < 250) return;
+    lastMsg = now;
+    post({ type: 'progress', id: curId, msg: `Downloading LOLA terrain… ${Math.min(99, Math.round(bytes / total * 100))}% (${(bytes / 1e6).toFixed(2)} of ${(total / 1e6).toFixed(2)} MB)` });
+  };
+  const onBytes = (n) => { bytes += n; report(false); };
+  report(true);
+  const tasks = want.map(([r, c]) => async () => {
+    const buf = new Int16Array(await fetchGz(`${base}data/dem_tiles/t_${r}_${c}.bin.gz`, onBytes));
+    const T = tm.tile, n = tm.n;
+    for (let i = 0; i < T && r * T + i < n; i++) {
+      const row = (r * T + i) * n + c * T, w = Math.min(T, n - c * T);
+      nearG.a.set(buf.subarray(i * T, i * T + w), row);
+    }
+    haveTiles.add(r * 1000 + c); done++; report(true);
+  });
+  if (!farG) tasks.unshift(async () => { const a = new Int16Array(await fetchGz(base + 'data/dem_far.bin.gz', onBytes)); farG = { a, ...meta.dem_far }; done++; report(true); });
+  // up to 6 downloads at a time
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(6, tasks.length) }, async () => { while (next < tasks.length) await tasks[next++](); }));
 }
 
 function demSample(g, x, y) {
@@ -33,8 +67,8 @@ function demSample(g, x, y) {
 }
 
 function heightAt(x, y) {
-  const h = demSample(dems[0], x, y);
-  return Number.isNaN(h) ? demSample(dems[1], x, y) : h;
+  const h = demSample(nearG, x, y);
+  return Number.isNaN(h) ? demSample(farG, x, y) : h;
 }
 
 function llToXY(lat, lon) {
@@ -135,11 +169,11 @@ self.onmessage = async (ev) => {
       }
       post({ type: 'result', id: m.id, results: sites.map((s, i) => ({ id: s.id, ...out[i] })) });
     } else if (m.type === 'horizon') {
-      await ensureDems(m.base, m.meta);
+      await ensureTerrain(m.base, m.meta, m.lat, m.lon, m.nearKm);
       const { hz, h0 } = computeHorizon(m.lat, m.lon, m.mast || 2);
       post({ type: 'result', id: m.id, hz, h0 }, [hz.buffer]);
     } else if (m.type === 'height') {
-      await ensureDems(m.base, m.meta);
+      await ensureTerrain(m.base, m.meta, m.lat, m.lon);
       const [x, y] = llToXY(m.lat * Math.PI / 180, m.lon * Math.PI / 180);
       post({ type: 'result', id: m.id, h: heightAt(x, y) });
     }

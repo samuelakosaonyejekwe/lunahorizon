@@ -10,7 +10,7 @@ Outputs (app/data/):
   basemap.jpg       hillshade of the 80°S cap for the site map
   basemap_zoom.jpg  hillshade of the inner ±80 km
   overlay.png       R = % time Sun visible, G = % time Earth visible, B = % time both (one year, 1 km grid; computed by tools/overlay.mjs)
-  dem_near.bin.gz   int16 heights (m), 80°S cap resampled to 400 m (browser horizon engine)
+  raw/dem_near.bin.gz  int16 heights (m), 80°S cap resampled to 400 m; tools/build_dem_tiles.py splits it into app/data/dem_tiles/
   dem_far.bin.gz    int16 heights (m), 75°S cap resampled to 1600 m
   meta.json         grid geometry for all of the above
 """
@@ -217,10 +217,10 @@ def main():
         return np.round(H).astype('<i2'), n
 
     nn, nf = int(round(2 * 303e3 / 400.0)), int(round(2 * 455e3 / 1600.0))
-    if not os.path.exists(OUT + 'dem_far.bin.gz'):
+    if not os.path.exists(OUT + 'dem_far.bin.gz') or not os.path.exists(ROOT + '/raw/dem_near.bin.gz'):
         near, nn = resample(303e3, 400.0)
         far, nf = resample(455e3, 1600.0)
-        with gzip.open(OUT + 'dem_near.bin.gz', 'wb', 9) as f: f.write(near.tobytes())
+        with gzip.open(ROOT + '/raw/dem_near.bin.gz', 'wb', 9) as f: f.write(near.tobytes())  # tiled by build_dem_tiles.py
         with gzip.open(OUT + 'dem_far.bin.gz', 'wb', 9) as f: f.write(far.tobytes())
     meta['dem_near'] = dict(half_m=303e3, cell=400.0, n=nn)
     meta['dem_far'] = dict(half_m=455e3, cell=1600.0, n=nf)
