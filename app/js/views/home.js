@@ -1,6 +1,6 @@
 // Home: what the tool does, live conditions at every site, fast entry points.
 import { h, store, getSite, engineOpts, fmtTime, fmtDeg, fmtLL, isoMin, groupTag } from '../ui.js';
-import { snapshot, ephemTable, siteSeries, DAY, HOUR } from '../engine.js';
+import { snapshot, ephemTable, siteSeries, DAY } from '../engine.js';
 import { panorama } from '../charts.js';
 import { installBanner } from '../install.js';
 
@@ -58,7 +58,7 @@ export function mount(root) {
     h('div.card', h('header', h('h2', 'Right now at every site'), h('div.spacer'), h('span.muted', { style: { fontSize: '12px' } }, fmtTime(now))), live),
     h('div', { style: { height: '22px' } }),
     h('div.card', h('h2', 'Built on real data'),
-      h('p.muted', 'Terrain: NASA LRO LOLA polar DEMs (80 m and 240 m per pixel). Sun and Earth positions come from an analytic lunar ephemeris with the IAU lunar orientation model, checked against JPL DE421: mean error 0.002°, worst case 0.01°. The Sun\'s disk is 0.27° in radius, so that is far below the size of the Sun itself. Everything runs on your device and works offline after the first visit.'),
+      h('p.muted', 'Terrain: NASA LRO LOLA polar DEMs, from 5 m to 240 m per pixel. Sun and Earth positions come from an analytic lunar ephemeris with the IAU lunar orientation model, checked against JPL DE421: mean error 0.0015°, worst case 0.009°. The Sun\'s disk is 0.27° in radius, so that is far below the size of the Sun itself. Everything runs on your device and works offline after the first visit.'),
       h('a', { href: '#/learn/methods' }, 'Methods, accuracy and sources →')),
   );
   return { unmount() { pano.destroy(); tip.destroy(); } };

@@ -19,13 +19,15 @@ function getTable(t0, step, n) {
 
 export function mount(root, params) {
   const q = query();
-  let site = getSite(params[0]) || getSite(localStorage.getItem('lh.lastSite')) || getSite('connecting-ridge') || store.sites[0];
+  let lastSiteId = null;
+  try { lastSiteId = localStorage.getItem('lh.lastSite'); } catch { /* storage blocked */ }
+  let site = getSite(params[0]) || getSite(lastSiteId) || getSite('connecting-ridge') || store.sites[0];
   if (params[0] !== site.id) history.replaceState(null, '', `#/site/${site.id}${location.hash.includes('?') ? '?' + location.hash.split('?')[1] : ''}`);
   try { localStorage.setItem('lh.lastSite', site.id); } catch { /* ignore */ }
 
   const st = {
     t: isFinite(parseIso(q.t)) ? parseIso(q.t) : Math.floor(Date.now() / 600000) * 600000,
-    span: +q.span || 30,
+    span: SPANS.some(([d]) => d === +q.span) ? +q.span : 30,   // only the offered spans (links are user input)
     view: q.view === 'sky' ? 'sky' : 'pano',
     zoom: 1, center: null,
     playing: false, speed: 6,
@@ -58,16 +60,16 @@ export function mount(root, params) {
   const skyBox = h('div.chart.pano', { style: { display: 'none' }, role: 'img', 'aria-label': 'Sky dome plot' });
 
   const whenEl = h('div.when');
-  const dtIn = h('input', { type: 'datetime-local', step: 600, 'aria-label': 'Date and time', onchange: () => { const v = fromInput(dtIn.value); if (isFinite(v)) seek(v, true); } });
+  const dtIn = h('input', { type: 'datetime-local', step: 600, 'aria-label': 'Date and time', onchange: () => { const v = fromInput(dtIn.value); if (isFinite(v)) seek(v); } });
   const playBtn = h('button.btn.primary.small', { onclick: togglePlay, 'aria-label': 'Play/pause time', title: 'Play / pause (Space)' }, icon(ICONS.play));
   const speedSel = h('select', { style: { width: 'auto' }, 'aria-label': 'Playback speed', onchange: (e) => { st.speed = +e.target.value; } },
     SPEEDS.map(([v, l]) => h('option', { value: v, selected: v === st.speed }, l)));
-  const stepBtn = (ms, ic, label) => h('button.btn.small', { onclick: () => seek(st.t + ms, true), 'aria-label': label, title: label }, icon(ic));
+  const stepBtn = (ms, ic, label) => h('button.btn.small', { onclick: () => seek(st.t + ms), 'aria-label': label, title: label }, icon(ic));
   const timebar = h('div.timebar',
     h('div.grp', stepBtn(-DAY, ICONS.back2, 'Back 1 day (Shift+←)'), stepBtn(-HOUR, ICONS.back, 'Back 1 hour (←)'), playBtn,
       stepBtn(HOUR, ICONS.fwd, 'Forward 1 hour (→)'), stepBtn(DAY, ICONS.fwd2, 'Forward 1 day (Shift+→)')),
     speedSel, dtIn,
-    h('button.btn.small', { onclick: () => seek(Date.now(), true), title: 'Jump to now (N)' }, icon(ICONS.now), 'Now'),
+    h('button.btn.small', { onclick: () => seek(Date.now()), title: 'Jump to now (N)' }, icon(ICONS.now), 'Now'),
     h('div.spacer'), whenEl);
 
   const panoCard = h('div.card.flush',
@@ -152,10 +154,10 @@ export function mount(root, params) {
         { type: 'line', label: 'Battery', data: s._socPct, color: c('--both'), min: 0, max: 100, unit: '%', fmt: (v) => `${v.toFixed(0)}%` },
       ],
     };
-  }, (ms) => seek(ms, false));
+  }, (ms) => seek(ms));
 
   // ---------------------------------------------------------------- compute
-  function rebuild(keepCursor) {
+  function rebuild() {
     const span = st.span * DAY;
     const step = stepFor(st.span);
     // window: cursor at ~20% from the left edge, aligned to step
@@ -170,11 +172,10 @@ export function mount(root, params) {
     tl.redraw();
   }
 
-  function seek(ms, recenter) {
+  function seek(ms) {
     st.t = Math.round(ms / 60000) * 60000;
     const s = st.series;
     if (!s || st.t < s.t0 || st.t > s.t0 + (s.n - 1) * s.step) rebuild();
-    else if (recenter) refresh();
     else refresh();
     tl.redraw();
   }
@@ -240,7 +241,7 @@ export function mount(root, params) {
   function renderEvents() {
     const s = st.series; if (!s) return;
     const ci = Math.max(0, Math.min(s.n - 1, Math.round((st.t - s.t0) / s.step)));
-    const row = (label, ev, onTxt, offTxt, color) => h('div.siteitem', { style: { cursor: ev ? 'pointer' : 'default' }, onclick: () => ev && seek(ev.t, true) },
+    const row = (label, ev, onTxt, offTxt, color) => h('div.siteitem', { style: { cursor: ev ? 'pointer' : 'default' }, onclick: () => ev && seek(ev.t) },
       h('span.sw', { style: { width: '10px', height: '10px', borderRadius: '3px', background: color, display: 'inline-block' } }),
       h('span.nm', ev ? (ev.on ? onTxt : offTxt) : `${label}: no change in view`),
       h('span.co', ev ? `${fmtTime(ev.t)} · in ${fmtDur((ev.t - st.t) / HOUR)}` : ''));
@@ -255,9 +256,10 @@ export function mount(root, params) {
 
   function renderSummary() {
     const x = st.stats;
-    const flag = (v, good, bad) => (v >= good ? 'ok' : v <= bad ? 'no' : '');
+    const s = st.series, end = s.t0 + (s.n - 1) * s.step;
     sumCard.replaceChildren(
-      h('header', h('h2', `Next ${SPANS.find((s) => s[0] === st.span)?.[1] || st.span + ' d'} at a glance`)),
+      h('header', h('h2', `${SPANS.find((x) => x[0] === st.span)?.[1] || st.span + ' d'} window at a glance`),
+        h('span.muted', { style: { fontSize: '12px' } }, `${fmtTime(s.t0, { dateOnly: true })} to ${fmtTime(end, { dateOnly: true })}`)),
       h('div.kpis',
         kpi('Sunlit time', fmtPct(x.sunPct, 1), `${x.darkPeriods} shadow period${x.darkPeriods === 1 ? '' : 's'}`, c('--sun')),
         kpi('Longest shadow', fmtDur(x.longestDarkH), x.longestDarkOpen ? 'runs past window edge' : 'battery must bridge this', c('--sun')),
@@ -268,7 +270,7 @@ export function mount(root, params) {
         kpi('Energy per day', `${(x.energyPerDayWh / 1000).toFixed(2)} <small>kWh</small>`, `mean ${x.meanPowerW.toFixed(0)} W · peak ${x.peakPowerW.toFixed(0)} W`),
         h('div.kpi.wide', h('div.k', 'Battery survival'),
           h('div.v', { html: `<span class="${x.depletedH > 0 ? 'no' : 'ok'}">${x.depletedH > 0 ? 'Depleted ' + fmtDur(x.depletedH) : 'Survives'}</span>` }),
-          h('div.s', `minimum charge ${fmtPct(x.minSocPct)} of ${settings.batteryWh} Wh at ${settings.loadW} W load. Change the power system in Settings.`)),
+          h('div.s', `minimum charge ${fmtPct(x.minSocPct)} of ${settings.batteryWh} Wh at ${settings.loadW} W load, starting fully charged at the window start. Change the power system in Settings.`)),
       ));
   }
 
@@ -278,7 +280,7 @@ export function mount(root, params) {
       h('p', site.note || ''),
       h('p.muted', { style: { fontSize: '13px' } },
         `Coordinates: ${fmtLL(site.lat, site.lon)} (${site.precision === 'published' ? 'published' : site.precision === 'region' ? 'representative point: the best-lit 1 km map cell near the approximate region center' : site.precision === 'custom' ? 'user defined' : 'feature center'}). Source: ${site.src || '—'}.`),
-      site.hz ? h('p.muted', { style: { fontSize: '13px' } }, `Terrain horizon traced over ${site.custom ? 'the 400 m / 1.6 km' : site.terrain.replace('LOLA ', '')} LOLA grids out to 260 km, 0.5° azimuth bins, ${site.hz2 ? settings.mastM : 2} m sensor height. Highest ridge: ${Math.max(...site.hz).toFixed(2)}°.`)
+      site.hz ? h('p.muted', { style: { fontSize: '13px' } }, `Terrain horizon traced over ${site.custom ? 'the 400 m / 1.6 km' : site.terrain.replace('LOLA ', '')} LOLA grids out to 260 km, 0.5° azimuth bins, ${site.hz2 ? settings.mastM : site.mast || 2} m sensor height. Highest ridge: ${Math.max(...site.hz).toFixed(2)}°.`)
         : h('p.muted', { style: { fontSize: '13px' } }, 'Outside the polar DEM: the horizon is modeled as a smooth sphere, so local hills are not included.'),
       site.custom ? h('button.btn.small', { onclick: () => { removeCustomSite(site.id); toast('Custom site removed'); location.hash = '#/map'; } }, icon(ICONS.trash), 'Remove custom site') : null,
     );
@@ -293,15 +295,15 @@ export function mount(root, params) {
   }
   function tick(now) {
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
-    seek(st.t + dt * st.speed * HOUR, false);
+    seek(st.t + dt * st.speed * HOUR);
     if (st.playing) raf = requestAnimationFrame(tick);
   }
   const onKey = (e) => {
     if (e.target.closest('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === 'ArrowRight') { seek(st.t + (e.shiftKey ? DAY : HOUR), true); e.preventDefault(); }
-    else if (e.key === 'ArrowLeft') { seek(st.t - (e.shiftKey ? DAY : HOUR), true); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { seek(st.t + (e.shiftKey ? DAY : HOUR)); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft') { seek(st.t - (e.shiftKey ? DAY : HOUR)); e.preventDefault(); }
     else if (e.key === ' ') { togglePlay(); e.preventDefault(); }
-    else if (e.key === 'n' || e.key === 'N') seek(Date.now(), true);
+    else if (e.key === 'n' || e.key === 'N') seek(Date.now());
   };
   document.addEventListener('keydown', onKey);
   const offSettings = onSettings(() => { renderInfo(); rebuild(); });

@@ -14,7 +14,7 @@ for r in range(rows):
         t = np.full((T, T), -32768, dtype='<i2')
         blk = a[r * T:(r + 1) * T, c * T:(c + 1) * T]
         t[:blk.shape[0], :blk.shape[1]] = blk
-        with gzip.open(OUT + f'dem_tiles/t_{r}_{c}.bin.gz', 'wb', 9) as f: f.write(t.tobytes())
+        with open(OUT + f'dem_tiles/t_{r}_{c}.bin.gz', 'wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=9, mtime=0) as f: f.write(t.tobytes())
         sizes.append(os.path.getsize(OUT + f'dem_tiles/t_{r}_{c}.bin.gz')); total += sizes[-1]
 meta['dem_near_tiles'] = dict(tile=T, rows=rows, n=n, half_m=m['half_m'], cell=m['cell'], bytes=sizes)  # compressed sizes, for download progress
 meta['dem_far']['bytes'] = os.path.getsize(OUT + 'dem_far.bin.gz')

@@ -4,8 +4,8 @@
 // Geocentric Sun: Meeus ch.25 plus an aberration correction.
 // Lunar orientation: IAU WGCCRE 2009 rotation model (Archinal et al. 2011), which
 // approximates the Mean-Earth/Polar-Axis frame that the LOLA DEMs use.
-// Checked against JPL DE421 with the MOON_ME_DE421 frame (see tools/validate.py).
-// Typical error is about 0.005 deg for Sun and Earth directions from the lunar surface.
+// Checked against JPL DE421 with the MOON_ME_DE421 frame (tools/validate.py → tools/fixtures, run by tools/test.mjs):
+// over 240 site-times (2024–2036) Sun elevation error is 0.0015° mean / 0.009° max, Earth 0.0008° mean / 0.003° max.
 
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
@@ -205,8 +205,9 @@ export function ephem(ms) {
 //        e = 0.6, argument of perilune 90° so apolune (and the slow, high part of the orbit) sits over the south pole.
 //        Defined in the Moon's equatorial inertial frame; epoch 2027-01-01 00:00 UTC at perilune.
 //  nrho: Gateway's 9:2 near-rectilinear halo orbit, approximated as a Keplerian-timed ellipse fixed in the
-//        Moon's body frame (the NRHO co-rotates with the Earth–Moon line): perilune 3,200 km over the north pole,
-//        apolune 70,000 km over the south pole, tilted 10° toward the far side; period 6.5625 d.
+//        Moon's body frame (the NRHO co-rotates with the Earth–Moon line, body +x ≈ toward Earth): perilune
+//        3,200 km over the north pole, apolune 70,000 km over the south pole with its axis tilted 10° toward the
+//        far side; the orbit sweeps across ±y (the "halo" seen from Earth); period 6.5625 d.
 export const RELAYS = {
   none: { name: 'None (direct-to-Earth only)' },
   elfo: { name: 'Frozen-orbit relay (Lunar Pathfinder-class)', frame: 'inertial', periodH: 12, a: 6143, e: 0.6, i: 57.8, raan: 0, argp: 90, epoch: Date.UTC(2027, 0, 1) },
@@ -237,13 +238,14 @@ export function relayPosition(kind, eph) {
     const cW = cos(eph.W), sW = sin(eph.W);
     return [cW * x + sW * y, -sW * x + cW * y, z];
   }
-  // body-fixed ellipse in the x–z plane: perilune toward +z (north), apolune toward -z tilted to the far side (-x)
+  // body-fixed ellipse in the plane spanned by its axis P (mostly ±z) and the body y axis:
+  // perilune toward +z (north, tilted slightly toward Earth), apolune toward -z tilted to the far side (-x)
   const a = (o.rp + o.ra) / 2, e = (o.ra - o.rp) / (o.ra + o.rp);
   const E = keplerE(M, e);
   const xo = a * (Math.cos(E) - e), yo = a * Math.sqrt(1 - e * e) * Math.sin(E);
   const t = o.tiltDeg * D2R;
   const P = [sin(t), 0, cos(t)];   // unit vector to perilune (north, tilted toward near side)
-  const Q = [0, 1, 0];             // in-plane normal direction of travel
+  const Q = [0, 1, 0];             // in-plane direction perpendicular to P (direction of travel at perilune)
   return [P[0] * xo + Q[0] * yo, P[1] * xo + Q[1] * yo, P[2] * xo + Q[2] * yo];
 }
 
@@ -281,14 +283,6 @@ export function topo(f, v) {
   let az = Math.atan2(e, n) * R2D;
   if (az < 0) az += 360;
   return { az, el: Math.asin(u / dist) * R2D, dist };
-}
-
-/** Sub-point (selenographic lat/lon in degrees) of a body-fixed vector */
-export function subPoint(v) {
-  const r = Math.hypot(v[0], v[1], v[2]);
-  let lon = Math.atan2(v[1], v[0]) * R2D;
-  if (lon > 180) lon -= 360;
-  return { lat: Math.asin(v[2] / r) * R2D, lon };
 }
 
 export const DSN = [

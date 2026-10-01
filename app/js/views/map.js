@@ -1,8 +1,9 @@
 // Polar Site Map: LOLA hillshade, yearly sunlight / Earth-visibility overlays, site markers, click-to-analyze any spot.
-import { h, store, compute, addCustomSite, fmtLL, fmtPct, toast, icon, ICONS, groupTag, query, setQuery } from '../ui.js';
-import { makeCanvas, isDark } from '../charts.js';
+import { h, store, settings, compute, addCustomSite, fmtLL, fmtPct, toast, icon, ICONS, groupTag, query, setQuery, DEM_LIMIT_LAT } from '../ui.js';
+import { makeCanvas } from '../charts.js';
+import { MOON_R_KM } from '../astro.js';
 
-const R_M = 1737400;
+const R_M = MOON_R_KM * 1000;
 const llToXY = (lat, lon) => { const la = lat * Math.PI / 180, lo = lon * Math.PI / 180; const rho = 2 * R_M * Math.tan(Math.PI / 4 + la / 2); return [rho * Math.sin(lo), rho * Math.cos(lo)]; };
 const xyToLL = (x, y) => { const rho = Math.hypot(x, y); return [(2 * Math.atan(rho / (2 * R_M)) - Math.PI / 2) * 180 / Math.PI, Math.atan2(x, y) * 180 / Math.PI]; };
 
@@ -25,17 +26,17 @@ function rampRGB(name, t) {
 }
 const rampCss = (name) => `linear-gradient(90deg, ${RAMPS[name].map(([t, r, g, b]) => `rgb(${r},${g},${b}) ${t * 100}%`).join(',')})`;
 
-let imgCache = {};
+const imgCache = {};
 function loadImg(src) {
-  if (imgCache[src]) return imgCache[src];
-  imgCache[src] = new Promise((res, rej) => { const im = new Image(); im.decoding = 'async'; im.onload = () => res(im); im.onerror = rej; im.src = src; });
+  // a failed load is not cached, so the map recovers once the connection is back
+  imgCache[src] ||= new Promise((res, rej) => { const im = new Image(); im.decoding = 'async'; im.onload = () => res(im); im.onerror = () => { delete imgCache[src]; rej(new Error('image failed: ' + src)); }; im.src = src; });
   return imgCache[src];
 }
 
 export function mount(root) {
   const meta = store.meta || {};
   const q = query();
-  const st = { layer: q.layer || 'sun', year: q.year || 'mean', cx: 0, cy: 0, scale: null, sel: null, overlayData: null, rangeData: null, overlayCanvases: {}, base: null, zoomImg: null, showLabels: true };
+  const st = { layer: q.layer || 'sun', year: q.year || 'mean', cx: 0, cy: 0, scale: null, sel: null, overlayData: null, rangeData: null, base: null, zoomImg: null, showLabels: true };
   const yrs = meta.overlay_years;
 
   const wrap = h('div.mapwrap');
@@ -61,7 +62,7 @@ export function mount(root) {
   const side = h('div.stack',
     h('div.card', h('header', h('h2', 'Sites'), h('div.spacer'), h('span.muted', { style: { fontSize: '12px' } }, `${store.sites.length} loaded`)), search, h('div', { style: { height: '10px' } }), list),
     h('div.card', h('header', h('h2', 'Add any location')),
-      h('p.muted', { style: { fontSize: '13px' } }, 'Tap the map, or enter coordinates. South of 80°S the terrain horizon is traced from LOLA data; elsewhere a smooth horizon is used.'),
+      h('p.muted', { style: { fontSize: '13px' } }, `Tap the map, or enter coordinates. South of ${-DEM_LIMIT_LAT}°S the terrain horizon is traced from LOLA data; elsewhere a smooth horizon is used.`),
       h('div.formgrid', latIn, lonIn),
       h('div', { style: { height: '8px' } }),
       h('button.btn.primary', { onclick: () => { const la = +latIn.value, lo = +lonIn.value; if (!isFinite(la) || la < -90 || la > 90 || latIn.value === '' || !isFinite(lo) || lonIn.value === '') return toast('Enter a valid latitude and longitude'); analyze(la, lo); } }, icon(ICONS.pin), 'Analyze location')),
@@ -92,9 +93,10 @@ export function mount(root) {
 
   // ---------------------------------------------------------------- overlay colouring
   function overlayCanvas(layer) {
-    const key = layer + '@' + (layer === 'range' ? '' : st.year);
-    if (st.overlayCanvases[key]) return st.overlayCanvases[key];
+    // cache on the data object itself, so a redraw while another year is loading can never show the wrong year
     const src = layer === 'range' ? st.rangeData : st.overlayData; if (!src) return null;
+    src.canvases ||= {};
+    if (src.canvases[layer]) return src.canvases[layer];
     const { w, h: hh, data } = src;
     const cv = document.createElement('canvas'); cv.width = w; cv.height = hh;
     const cx = cv.getContext('2d');
@@ -107,7 +109,7 @@ export function mount(root) {
       out.data[i * 4] = r; out.data[i * 4 + 1] = g; out.data[i * 4 + 2] = b; out.data[i * 4 + 3] = 255;
     }
     cx.putImageData(out, 0, 0);
-    st.overlayCanvases[key] = cv;
+    src.canvases[layer] = cv;
     return cv;
   }
   function overlayValue(x, y) {
@@ -185,7 +187,7 @@ export function mount(root) {
     const boxes = [];
     const order = [...store.sites].sort((a, b) => (st.sel?.id === b.id) - (st.sel?.id === a.id) || (a.group === 'Artemis' ? -1 : 1) - (b.group === 'Artemis' ? -1 : 1));
     for (const s of order) {
-      if (s.lat > -79) continue;
+      if (s.lat > DEM_LIMIT_LAT) continue;
       const [x, y] = llToXY(s.lat, s.lon);
       const [sx, sy] = toScreen(x, y, W, H);
       if (sx < -20 || sy < -20 || sx > W + 20 || sy > H + 20) continue;
@@ -267,7 +269,7 @@ export function mount(root) {
     // nearest site within 14 px
     let best = null, bd = 14;
     for (const s of store.sites) {
-      if (s.lat > -79) continue;
+      if (s.lat > DEM_LIMIT_LAT) continue;
       const [x, y] = llToXY(s.lat, s.lon);
       const [px, py] = toScreen(x, y, map.w, map.h);
       const d = Math.hypot(px - sx, py - sy);
@@ -310,15 +312,16 @@ export function mount(root) {
   async function analyze(lat, lon) {
     const id = `custom-${lat.toFixed(4)}_${lon.toFixed(4)}`;
     const name = `Custom ${Math.abs(lat).toFixed(2)}°${lat < 0 ? 'S' : 'N'} ${Math.abs(((lon + 540) % 360) - 180).toFixed(2)}°${(((lon + 540) % 360) - 180) < 0 ? 'W' : 'E'}`;
-    if (lat > -79.5) {
+    if (lat > DEM_LIMIT_LAT) {
       addCustomSite({ id, name, lat, lon, elev_m: null, hz: null, terrain: 'smooth sphere (outside polar DEM)', note: 'User-defined site. Horizon modeled as a smooth sphere.' });
       location.hash = `#/site/${id}`; return;
     }
     const busy = h('div.busy', h('div.spinner'), h('span', 'Preparing terrain…'));
     card.replaceChildren(h('div.card', { style: { padding: '8px' } }, busy)); card.style.display = 'block';
     try {
-      const res = await compute({ type: 'horizon', lat, lon, mast: 2, base: new URL('.', location.href).href, meta }, (m) => { busy.lastChild.textContent = m; });
-      addCustomSite({ id, name, lat, lon, elev_m: Math.round(res.h0), hz: res.hz, terrain: 'LOLA 400 m + 1.6 km (in-browser)', note: 'User-defined site; horizon traced in your browser from LOLA terrain.' });
+      const mast = settings.mastM === 10 ? 10 : 2;   // trace at the sensor height chosen in Settings
+      const res = await compute({ type: 'horizon', lat, lon, mast, base: new URL('.', location.href).href, meta }, (m) => { busy.lastChild.textContent = m; });
+      addCustomSite({ id, name, lat, lon, elev_m: Math.round(res.h0), hz: res.hz, mast, terrain: 'LOLA 400 m + 1.6 km (in-browser)', note: `User-defined site; horizon traced in your browser from LOLA terrain for a sensor ${mast} m above the ground.` });
       toast('Terrain horizon computed. Site saved on this device.');
       location.hash = `#/site/${id}`;
     } catch (err) {
@@ -329,7 +332,7 @@ export function mount(root) {
   function renderList() {
     const f = search.value.trim().toLowerCase();
     list.replaceChildren(...store.sites.filter((s) => !f || s.name.toLowerCase().includes(f) || (s.group || '').toLowerCase().includes(f)).map((s) =>
-      h('a.siteitem', { href: `#/site/${s.id}`, onmouseenter: () => { if (s.lat <= -79) { const [x, y] = llToXY(s.lat, s.lon); st.sel = { ...s, x, y }; map.redraw(); } } },
+      h('a.siteitem', { href: `#/site/${s.id}`, onmouseenter: () => { if (s.lat <= DEM_LIMIT_LAT) { const [x, y] = llToXY(s.lat, s.lon); st.sel = { ...s, x, y }; map.redraw(); } } },
         h('span.nm', s.name), groupTag(s), h('span.co', `${Math.abs(s.lat).toFixed(2)}°${s.lat < 0 ? 'S' : 'N'}`))));
   }
   renderList();
@@ -341,14 +344,21 @@ export function mount(root) {
     const cx = c.getContext('2d', { willReadFrequently: true }); cx.drawImage(im, 0, 0);
     return { w: c.width, h: c.height, data: cx.getImageData(0, 0, c.width, c.height).data };
   });
+  let overlayReq = 0;
   function loadOverlay() {
     if (!meta.overlay) return;
-    const src = st.year === 'mean' || !yrs ? 'data/overlay.png' : `data/years/overlay_${st.year}.png`;
-    readImg(src).then((d) => { st.overlayData = d; legendUpdate(); map.redraw(); }).catch(() => toast('Map layer failed to load'));
+    const my = ++overlayReq, year = st.year;
+    const src = year === 'mean' || !yrs ? 'data/overlay.png' : `data/years/overlay_${year}.png`;
+    readImg(src).then((d) => {
+      if (my !== overlayReq) return;      // a newer year was picked while this one loaded
+      st.overlayData = d; legendUpdate(); map.redraw();
+      if (st.sel && card.style.display !== 'none' && !card.querySelector('.busy')) showCard(...toScreenSel());   // refresh the card's numbers
+    }).catch(() => { if (my === overlayReq) toast('Map layer failed to load'); });
   }
+  const toScreenSel = () => toScreen(st.sel.x, st.sel.y, map.w, map.h);
   loadOverlay();
   if (yrs) readImg('data/overlay_range.png').then((d) => { st.rangeData = d; map.redraw(); }).catch(() => {});
   if (yearSel) yearSel.disabled = st.layer === 'range';
 
-  return { unmount() { map.destroy(); } };
+  return { unmount() { map.destroy(); clearTimeout(st.cardTimer); } };
 }

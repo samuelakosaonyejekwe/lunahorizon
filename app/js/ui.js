@@ -25,8 +25,6 @@ export function h(tag, attrs, ...kids) {
   return el;
 }
 
-export const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
 // ------------------------------------------------------------------ settings
 const SKEY = 'lh.settings';
 const load = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } };
@@ -35,15 +33,28 @@ const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } cat
 export const settings = { tz: 'utc', theme: 'auto', mastM: 2, ...DEFAULTS, ...load(SKEY, {}) };
 const listeners = new Set();
 export function onSettings(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+/** Southernmost latitude band with LOLA terrain horizons; elsewhere a smooth horizon is used (same as tools/sites.py) */
+export const DEM_LIMIT_LAT = -79.5;
+
+// 10 m mast horizons live in their own file and are fetched only when that height is chosen
+let tallLoad = null;
+function loadTall() {
+  tallLoad ||= fetch('data/horizons10.json').then((r) => { if (!r.ok) throw new Error('horizons10.json: ' + r.status); return r.json(); })
+    .then((j) => { for (const s of store.sites) if (j.horizons[s.id]) s.hz10 = decodeHorizon(j.horizons[s.id]); })
+    .catch((e) => { tallLoad = null; throw e; });
+  return tallLoad;
+}
 /** Point every curated site at the horizon for the chosen sensor height (custom sites have one horizon) */
-function applyMast() {
-  for (const s of store.sites) if (s.hz2) s.hz = settings.mastM === 10 ? s.hz10 : s.hz2;
+async function applyMast() {
+  if (settings.mastM === 10) await loadTall();
+  for (const s of store.sites) if (s.hz2) s.hz = settings.mastM === 10 && s.hz10 ? s.hz10 : s.hz2;
 }
 export function updateSettings(patch) {
   Object.assign(settings, patch);
   save(SKEY, settings);
-  if ('mastM' in patch) applyMast();
-  listeners.forEach((fn) => fn(settings));
+  const notify = () => listeners.forEach((fn) => fn(settings));
+  if ('mastM' in patch) applyMast().then(notify, () => { toast('Could not load the 10 m horizons; showing 2 m.'); notify(); });
+  else notify();
 }
 export const engineOpts = () => {
   const o = {};
@@ -114,16 +125,14 @@ export const store = { sites: [], byId: new Map(), meta: null };
 const CKEY = 'lh.custom';
 
 export async function loadSites() {
-  const [sj, meta] = await Promise.all([
-    fetch('data/sites.json').then((r) => r.json()),
-    fetch('data/meta.json').then((r) => r.json()).catch(() => null),
-  ]);
+  const json = (url) => fetch(url).then((r) => { if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`); return r.json(); });
+  const [sj, meta] = await Promise.all([json('data/sites.json'), json('data/meta.json').catch(() => null)]);
   store.meta = meta;
-  const list = sj.sites.map((s) => { const hz2 = decodeHorizon(s.horizon); return { ...s, hz2, hz10: decodeHorizon(s.horizon10) || hz2, hz: hz2, horizon: undefined, horizon10: undefined }; });
+  const list = sj.sites.map((s) => { const hz2 = decodeHorizon(s.horizon); return { ...s, hz2, hz10: null, hz: hz2, horizon: undefined }; });
   for (const c of load(CKEY, [])) list.push({ ...c, hz: decodeHorizon(c.horizon), horizon: undefined, custom: true, group: 'Custom' });
   store.sites = list;
   store.byId = new Map(list.map((s) => [s.id, s]));
-  applyMast();
+  await applyMast().catch(() => {});      // a missing 10 m file falls back to the 2 m horizons
   return list;
 }
 export function addCustomSite(site) {
@@ -143,7 +152,6 @@ export function removeCustomSite(id) {
   store.byId.delete(id);
 }
 export const getSite = (id) => store.byId.get(id);
-export const polarSites = () => store.sites.filter((s) => s.lat <= -79);
 export function groupTag(s) {
   const g = s.group || 'Reference';
   const cls = g === 'Artemis' ? 'artemis' : g === 'CLPS' ? 'clps' : g === 'Custom' ? 'custom' : '';
@@ -215,9 +223,6 @@ export function download(name, content, type = 'text/plain') {
   const a = h('a', { href: URL.createObjectURL(blob), download: name });
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-}
-export function debounce(fn, ms = 150) {
-  let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
 export function cssVar(name, el = document.documentElement) { return getComputedStyle(el).getPropertyValue(name).trim(); }
 export function icon(path) { return h('span', { html: `<svg viewBox="0 0 24 24" width="18" height="18">${path}</svg>` }).firstChild; }

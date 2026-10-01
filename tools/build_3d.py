@@ -4,7 +4,6 @@
 """
 import gzip, json, sys
 import numpy as np
-sys.argv = [sys.argv[0], '--skip-map']
 import importlib.util
 spec = importlib.util.spec_from_file_location('bd', __file__.rsplit('/', 1)[0] + '/build_data.py')
 bd = importlib.util.module_from_spec(spec); spec.loader.exec_module(bd)
@@ -23,7 +22,7 @@ def tile(half, n, fine):
 meta = json.load(open(bd.OUT + 'meta.json'))
 for name, half, n, fine in (('dem3d_fine', 80e3, 512, True), ('dem3d_coarse', 200e3, 500, False)):
     arr, cell = tile(half, n, fine)
-    with gzip.open(bd.OUT + name + '.bin.gz', 'wb', 9) as f: f.write(arr.tobytes())
+    with open(bd.OUT + name + '.bin.gz', 'wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=9, mtime=0) as f: f.write(arr.tobytes())  # mtime=0: reproducible bytes
     meta[name] = dict(half_m=half, n=n, cell=cell)
     print(name, arr.shape, arr.min(), arr.max())
 json.dump(meta, open(bd.OUT + 'meta.json', 'w'), indent=1)

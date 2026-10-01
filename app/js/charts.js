@@ -52,6 +52,24 @@ function niceStep(range, target) {
   return (m < 1.5 ? 1 : m < 3 ? 2 : m < 7 ? 5 : 10) * p;
 }
 
+/** Tick times between t0 and t1: month starts (in the display time zone) for long ranges, else multiples of stepMs */
+function timeTicks(t0, t1, stepMs) {
+  const out = [];
+  if (stepMs >= 28 * 86400000) {
+    const utc = settings.tz === 'utc', d = new Date(t0);
+    let y = utc ? d.getUTCFullYear() : d.getFullYear(), m = utc ? d.getUTCMonth() : d.getMonth();
+    for (;;) {
+      const t = utc ? Date.UTC(y, m, 1) : new Date(y, m, 1).getTime();
+      if (t > t1) break;
+      if (t >= t0) out.push(t);
+      if (++m > 11) { m = 0; y++; }
+    }
+    return out;
+  }
+  for (let t = Math.ceil(t0 / stepMs) * stepMs; t <= t1; t += stepMs) out.push(t);
+  return out;
+}
+
 // Deterministic star field
 const STARS = Array.from({ length: 260 }, (_, i) => {
   const x = Math.sin(i * 12.9898) * 43758.5453, y = Math.sin(i * 78.233) * 12543.123, z = Math.sin(i * 3.14) * 9321.7;
@@ -175,7 +193,8 @@ export function panorama(container, getState, onHover) {
       ctx.fillText('Relay', rx + 10, ry);
     }
 
-    // bodies (drawn at true angular size, with a minimum)
+    // bodies (drawn at true angular size, with a minimum), clipped to the plot area
+    ctx.save(); ctx.beginPath(); ctx.rect(left, top, pw, ph); ctx.clip();
     const sunR = Math.max(5, snap.sun.r * Math.min(pxPerDegX, pxPerDegY) * 1);
     const earthR = Math.max(7, snap.earth.r * Math.min(pxPerDegX, pxPerDegY));
     const sx = X(snap.sun.az), sy = Y(snap.sun.el), ex = X(snap.earth.az), ey = Y(snap.earth.el);
@@ -184,6 +203,7 @@ export function panorama(container, getState, onHover) {
       let dx = sx - ex; if (Math.abs(dx) > pw / 2) dx -= Math.sign(dx) * pw * (360 / span);
       drawEarth(ctx, ex, ey, earthR, snap.earth.phase, Math.atan2(sy - ey, dx), cssVar('--earth') || '#3987e5');
     }
+    ctx.restore();
 
     // terrain
     ctx.beginPath();
@@ -269,7 +289,7 @@ export function panorama(container, getState, onHover) {
   return api;
 }
 
-/** Polar sky plot: zenith at center, horizon at the rim. Radial scale compresses high elevations so polar detail stays visible. */
+/** Polar sky plot: zenith at the center, -3° at the rim, linear in elevation up to st.maxEl (lower for polar sites so low-Sun detail stays visible). */
 export function skyplot(container, getState) {
   return makeCanvas(container, (ctx, W, H) => {
     const st = getState();
@@ -412,14 +432,13 @@ export function timeline(container, getCfg, onSeek) {
     const days = (n * step) / 86400000;
     const tickMs = days <= 3 ? 6 * 3600000 : days <= 12 ? 86400000 : days <= 45 ? 5 * 86400000 : days <= 120 ? 14 * 86400000 : 30 * 86400000;
     ctx.font = FONT(10.5); ctx.fillStyle = c.text3; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    const firstTick = Math.ceil(t0 / tickMs) * tickMs;
     let lastLabelX = -1e9;
-    for (let t = firstTick; t <= t0 + (n - 1) * step; t += tickMs) {
-      if (tickMs >= 30 * 86400000) { /* snap to month starts */ }
+    for (const t of timeTicks(t0, t0 + (n - 1) * step, tickMs)) {
       const x = left + ((t - t0) / ((n - 1) * step)) * pw;
       ctx.strokeStyle = c.grid; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, y - gap); ctx.stroke();
       const lab = tickMs < 86400000 ? fmtTime(t, { noZone: true }).slice(5) : fmtShortDate(t);
-      if (x - lastLabelX > 56) { ctx.fillText(lab, x, y - gap + 6); lastLabelX = x; }
+      const lw = ctx.measureText(lab).width;
+      if (x - lw / 2 > lastLabelX + 8) { ctx.fillText(lab, x, y - gap + 6); lastLabelX = x + lw / 2; }
     }
     geom.rows = rows; geom.bottomY = y;
     // cursor
@@ -430,11 +449,6 @@ export function timeline(container, getCfg, onSeek) {
         ctx.strokeStyle = c.text; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, y - gap); ctx.stroke();
         ctx.fillStyle = c.text; ctx.beginPath(); ctx.moveTo(x - 5, top); ctx.lineTo(x + 5, top); ctx.lineTo(x, top + 6); ctx.fill();
       }
-    }
-    // extra shaded spans (e.g. mission window)
-    for (const sp of cfg.spans || []) {
-      const x0 = left + Math.max(0, (sp.a - t0) / ((n - 1) * step)) * pw, x1 = left + Math.min(1, (sp.b - t0) / ((n - 1) * step)) * pw;
-      if (x1 > x0) { ctx.fillStyle = sp.color; ctx.fillRect(x0, top, x1 - x0, y - gap - top); }
     }
     if (hoverX != null) {
       ctx.strokeStyle = c.text3; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(hoverX, top); ctx.lineTo(hoverX, y - gap); ctx.stroke(); ctx.setLineDash([]);
@@ -460,7 +474,6 @@ export function timeline(container, getCfg, onSeek) {
     const r = cv.getBoundingClientRect();
     if (i == null || e.pointerType === 'touch' && !seeking) { tip.style.display = 'none'; hoverX = null; api.redraw(); return; }
     hoverX = geom.left + (i / (geom.n - 1)) * geom.pw;
-    const cfg = getCfg();
     let html = `<b>${fmtTime(geom.t0 + i * geom.step)}</b>`;
     for (const row of geom.rows) {
       const L = row.L;
@@ -523,10 +536,11 @@ export function swimlanes(container, getCfg, onPick) {
     const tickMs = days <= 12 ? 86400000 : days <= 45 ? 7 * 86400000 : days <= 120 ? 14 * 86400000 : 30 * 86400000;
     ctx.font = FONT(10.5); ctx.fillStyle = c.text3; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     let lastX = -1e9;
-    for (let t = Math.ceil(t0 / tickMs) * tickMs; t < t0 + n * step; t += tickMs) {
+    for (const t of timeTicks(t0, t0 + n * step - 1, tickMs)) {
       const x = left + (t - t0) / (n * step) * pw;
       ctx.strokeStyle = c.grid; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, y - rowGap); ctx.stroke();
-      if (x - lastX > 50) { ctx.fillText(fmtShortDate(t), x, y - rowGap + 4); lastX = x; }
+      const lab = fmtShortDate(t), lw = ctx.measureText(lab).width;
+      if (x - lw / 2 > lastX + 8) { ctx.fillText(lab, x, y - rowGap + 4); lastX = x + lw / 2; }
     }
     geom = { left, pw, rowPos, t0, step, n };
     if (cfg.cursor != null) {
@@ -536,7 +550,6 @@ export function swimlanes(container, getCfg, onPick) {
   });
   api.cv.addEventListener('pointermove', (e) => {
     if (!geom) return;
-    const cfg = getCfg();
     const r = api.cv.getBoundingClientRect();
     const x = e.clientX - r.left, y = e.clientY - r.top;
     const f = (x - geom.left) / geom.pw;

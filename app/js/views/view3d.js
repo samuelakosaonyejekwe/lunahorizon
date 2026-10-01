@@ -1,12 +1,12 @@
 // 3D South Pole: LOLA terrain in WebGL2 with live, physically placed sunlight and ray-marched shadows.
 // Shadows use true (unexaggerated) heights over a ±200 km tile, including the Moon's curvature, and a soft
 // edge from the Sun's real angular radius, so a partly hidden Sun gives partial light.
-import { h, store, getSite, settings, engineOpts, fmtTime, fmtDeg, fmtPct, toInput, fromInput, query, setQuery, isoMin, parseIso, icon, ICONS, toast } from '../ui.js';
-import { ephem, SUN_R_KM, R2D } from '../astro.js';
+import { h, store, getSite, engineOpts, fmtTime, fmtDeg, fmtPct, toInput, fromInput, query, setQuery, isoMin, parseIso, icon, ICONS } from '../ui.js';
+import { ephem, SUN_R_KM, MOON_R_KM, R2D } from '../astro.js';
 import { snapshot, HOUR, DAY } from '../engine.js';
 import { gunzip } from '../gz.js';
 
-const R_KM = 1737.4;
+const R_KM = MOON_R_KM;
 const SPEEDS = [[1, '1 h/s'], [6, '6 h/s'], [24, '1 d/s'], [72, '3 d/s']];
 
 // ------------------------------------------------------------------ small math
@@ -83,7 +83,7 @@ void main() {
 const FS = COMMON + `
 in vec2 vP;
 uniform vec3 uSun;
-uniform float uSunR, uMode, uSteps, uHole, uSunUp;
+uniform float uSunR, uMode, uSteps, uHole;
 uniform sampler2D uOverlay;
 uniform float uOverlayHalf;
 out vec4 frag;
@@ -99,7 +99,7 @@ void main() {
   // --- sunlight with ray-marched terrain shadow (true heights) ---
   float light = 0.0;
   vec2 sxy = uSun.xy; float sl = length(sxy);
-  if (uSunUp > 0.0 && sl > 1e-6) {
+  if (sl > 1e-6) {
     vec2 dir = sxy / sl;
     float tanB = uSun.z / sl;
     float z0 = hTrue(vP) + 0.002;
@@ -220,8 +220,13 @@ export function mount(root) {
     gl.attachShader(prog, compile(gl, gl.VERTEX_SHADER, VS)); gl.attachShader(prog, compile(gl, gl.FRAGMENT_SHADER, FS));
     gl.bindAttribLocation(prog, 0, 'aUV'); gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
-    for (const n of ['uFine', 'uCoarse', 'uFineHalf', 'uCoarseHalf', 'uExag', 'uHalf', 'uMVP', 'uSun', 'uSunR', 'uMode', 'uSteps', 'uHole', 'uSunUp', 'uOverlay', 'uOverlayHalf']) U[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uFine', 'uCoarse', 'uFineHalf', 'uCoarseHalf', 'uExag', 'uHalf', 'uMVP', 'uSun', 'uSunR', 'uMode', 'uSteps', 'uHole', 'uOverlay', 'uOverlayHalf']) U[n] = gl.getUniformLocation(prog, n);
   } catch (e) { box.replaceChildren(h('div.empty', { style: { color: '#dfe5f3' } }, '3D shaders failed to compile on this device: ' + e.message)); return {}; }
+  cv.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault(); ready = false;
+    box.append(h('div.busy', { style: { position: 'absolute', inset: 0, justifyContent: 'center', color: '#dfe5f3', background: 'rgba(0,0,0,.6)' } },
+      h('span', 'The graphics context was reset by the device. '), h('button.btn.small', { onclick: () => location.reload() }, 'Reload 3D')));
+  });
   const mobile = matchMedia('(pointer: coarse)').matches;
   const fineMesh = grid(gl, mobile ? 384 : 512), coarseMesh = grid(gl, 200);
   const fm = meta.dem3d_fine || { half_m: 80e3, n: 512 }, cm = meta.dem3d_coarse || { half_m: 200e3, n: 500 };
@@ -291,7 +296,7 @@ export function mount(root) {
     gl.uniform1f(U.uFineHalf, fm.half_m / 1000); gl.uniform1f(U.uCoarseHalf, cm.half_m / 1000);
     gl.uniform1f(U.uOverlayHalf, (meta.overlay?.half_m || 200e3) / 1000);
     gl.uniform1f(U.uExag, st.exag); gl.uniformMatrix4fv(U.uMVP, false, mvp);
-    gl.uniform3fv(U.uSun, sun); gl.uniform1f(U.uSunR, sunR); gl.uniform1f(U.uSunUp, 1);
+    gl.uniform3fv(U.uSun, sun); gl.uniform1f(U.uSunR, sunR);
     gl.uniform1f(U.uMode, overlayTex ? st.mode : 0); gl.uniform1f(U.uSteps, window.__lh3dSteps || (mobile ? 110 : 170));
     // coarse ring first (with a hole where the fine tile is), then the fine tile
     gl.uniform1f(U.uHalf, cm.half_m / 1000); gl.uniform1f(U.uHole, fm.half_m / 1000 - 0.4);
@@ -361,10 +366,14 @@ export function mount(root) {
   cv.addEventListener('pointermove', (e) => {
     if (!pts.has(e.pointerId) || !drag) return;
     pts.set(e.pointerId, [e.clientX, e.clientY]);
+    // "grab" panning: the ground follows the finger. The eye sits at target + dist·(sin az, cos az) horizontally,
+    // so the view looks along fwd = -(sin az, cos az) and screen-right is fwd × up = (-cos az, sin az).
+    // A vertical drag moves the ground along fwd, stretched by 1/sin(elevation) as the view flattens.
     const panBy = (dx, dy, base) => {
       const az = st.az * Math.PI / 180, k = st.dist / cv.clientHeight * 0.95;
-      const right = [Math.cos(az), -Math.sin(az)], fwd = [-Math.sin(az), -Math.cos(az)];
-      st.target = [base[0] - (dx * right[0] - dy * fwd[0]) * k, base[1] - (dx * right[1] - dy * fwd[1]) * k, 0];
+      const kv = k / Math.max(0.25, Math.sin(st.el * Math.PI / 180));
+      const right = [-Math.cos(az), Math.sin(az)], fwd = [-Math.sin(az), -Math.cos(az)];
+      st.target = [base[0] - dx * right[0] * k + dy * fwd[0] * kv, base[1] - dx * right[1] * k + dy * fwd[1] * kv, 0];
     };
     if (drag.pinch && pts.size === 2) {
       const [a, b] = [...pts.values()];

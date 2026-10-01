@@ -16,7 +16,7 @@ There is no build step and no framework: plain ES modules and canvas.
 |---|---|
 | **Site Map** | Where is the light? A LOLA hillshade of the south pole with yearly **sunlight %, Earth-visibility % and Sun+Earth %** maps on a 1 km grid. Tap any spot to trace its terrain horizon in the browser and save it as your own site. |
 | **Explorer** | What does the sky look like from this site right now, or at any date? A 360° **horizon panorama** (or sky dome) shows the LOLA skyline, the Sun and Earth (with phase) and their ±15-day tracks. It includes a time machine (play, step, scrub), live readouts (elevation, % of disk visible, array power, net power, DSN complexes), next sunrise / Earthrise events, and a timeline of Sun and Earth clearance, sunlight / Earth / DSN / Sun+Earth flags, **solar power and battery state of charge**. Exports CSV and PNG. |
-| **Compare** | Which site is best for a given period? Ranking by sunlit %, Earth %, DTE %, Sun+Earth %, longest shadow, longest Earth loss, energy per day and minimum battery charge. Adds synchronized swimlanes and a **daily calendar heatmap**. One click jumps to any site at any moment. |
+| **Compare** | Which site is best for a given period? Ranking by sunlit %, Earth %, DTE %, Sun+Earth %, comms % (DTE + relay), longest comms gap, longest shadow, longest Earth loss, energy per day and minimum battery charge. Adds synchronized swimlanes and a **daily calendar heatmap**. One click jumps to any site at any moment. |
 | **Window Finder** | When can we land? It tests every landing time (every 3 h) against the full surface stay using mission profiles (Artemis III crewed, CLPS lander, long-duration rover, custom). The result is a **feasibility calendar**, a list of landing opportunities with reasons for rejection, and **.ics** and CSV export. |
 | **3D South Pole** | WebGL2 terrain (±80 km detail, ±200 km context) lit by the Sun at any moment. Shadows are ray-traced toward the Sun on the GPU through true LOLA heights, including the Moon's curvature and the Sun's disk size; modes for live light, average yearly sunlight and Earth visibility; adjustable relief. |
 | **Learn** | Why the poles are extreme, terrain and PSRs, Earth libration, power and batteries, DTE, DSN and relays, how to use the tool, methods and accuracy, and a glossary. It includes live demos. |
@@ -27,7 +27,9 @@ There is no build step and no framework: plain ES modules and canvas.
 
 **High-resolution horizons.** Site horizons layer LOLA 5 m data (within 4 km, sites south of 87.5°S) and 20 m data (within 15 km) over the 80 m and 240 m grids, fetched as small windows with HTTP range requests.
 
-Other features: shareable deep links for every view, UTC or local time, light and dark themes, keyboard shortcuts
+**Sensor height.** Settings switches site horizons between 2 m (lander deck) and 10 m (mast): with the Sun a degree or two up, gentle nearby slopes matter (Malapert Massif: 56% → 80% sunlit in 2027).
+
+Other features: install help for each browser, shareable deep links for every view, UTC or local time, light and dark themes, keyboard shortcuts
 (←/→ hour, Shift for day, Space to play, N for now), configurable visibility rules (solar-disk fraction, antenna terrain
 margin, DSN elevation mask) and power system (array type, area, efficiency, load, battery).
 
@@ -47,8 +49,9 @@ margin, DSN elevation mask) and power system (array type, area, efficiency, load
 * Validated against **JPL DE421 + MOON_ME_DE421** (Skyfield) for 240 random site-times:
   Sun elevation mean 0.0015°, max 0.009°; Earth elevation mean 0.0008°, max 0.003°.
   The solar disk's radius is 0.27°, so these errors are far smaller than the Sun itself. Run `npm test` to reproduce.
-* Terrain: NASA LRO **LOLA** polar DEMs `LDEM_80S_80M` and `LDEM_75S_240M` (PDS Geosciences Node). Horizons are ray-traced out to 260 km
-  with Earth-curvature geometry.
+* Terrain: NASA LRO **LOLA** polar DEMs (PDS Geosciences Node): `LDEM_875S_5M` and `LDEM_80S_20M` windows near each site,
+  `LDEM_80S_80M` and `LDEM_75S_240M` beyond. Horizons are ray-traced out to 260 km allowing for the Moon's curvature,
+  for sensors 2 m and 10 m above the ground.
 
 This is a planning and education tool; confirm flight operations with SPICE-based tools.
 
@@ -63,15 +66,25 @@ Any static host works (GitHub Pages, Netlify, S3). Serve the `app/` folder.
 
 ## Rebuild the data (optional)
 
+Everything in `app/data/` is generated from public NASA data. Python 3.10+ with `pip install -r tools/requirements.txt`, and Node 20+.
+
 ```bash
-# 1. Download LOLA DEMs into raw/ (see tools/build_data.py header for URLs)
-# 2. High-resolution windows around each site (HTTP range requests, no full download):
+# 1. LOLA polar DEMs (PDS Geosciences Node), about 145 MB
+mkdir -p raw && cd raw
+B=https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/polar/img
+curl -O $B/ldem_80s_80m.img && curl -O $B/ldem_75s_240m.img && cd ..
+# 2. 5 m and 20 m windows around each site (HTTP range requests; resumable)
 python3 tools/fetch_windows.py
-# 3. Screening maps for 2026–2044 (parallel, all CPU cores), then the map layers:
+# 3. Site horizons (2 m and 10 m), basemaps, browser DEMs, terrain tiles, 3D tiles
+python3 tools/build_data.py && python3 tools/build_dem_tiles.py && python3 tools/build_3d.py
+# 4. Sunlight / Earth-visibility maps for 2026–2044 (all CPU cores, ~30 min), then the map layers
 node tools/overlay_years.mjs && python3 tools/build_years.py
-# 4. Site horizons, basemaps, browser DEMs, 3D tiles:
-python3 tools/build_data.py && python3 tools/build_3d.py
+# 5. Optional: regenerate the JPL DE421 accuracy reference used by the tests (needs skyfield + NAIF kernels)
+python3 tools/validate.py <kernel-dir>
 ```
+
+The site list (with the chosen representative points) is `tools/sites.py`. After changing anything in `app/data/`,
+bump `VERSION` in `app/sw.js` so installed copies refresh their offline cache.
 
 ## Project layout
 

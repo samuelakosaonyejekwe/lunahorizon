@@ -67,7 +67,26 @@ const { relayPosition, RELAYS } = await import('../app/js/astro.js');
   ok(none.commsPct === none.dtePct, 'without a relay, comms equal direct-to-Earth');
 }
 
-// 8. Performance: one year hourly ephemeris
+// 8. Regression checks for fixed defects
+{
+  const site = { lat: 0.67, lon: 23.47, hz: null };
+  const c = { minLitPct: 0, maxDarkH: 1e9, minCommPct: 0, maxNoCommH: 1e9, useDSN: false, requireLanding: false, landSunMin: -90, landSunMax: 90 };
+  const short = windowScan(siteSeries(site, ephemTable(t0, step, 24 * 30), DEFAULTS), 72, 24, c);
+  const long = windowScan(siteSeries(site, ephemTable(t0, step, 24 * 365), DEFAULTS), 72, 24, c);
+  let worst = 0; for (let k = 0; k < short.n; k++) worst = Math.max(worst, Math.abs(short.score[k] - long.score[k]));
+  ok(worst < 1e-4, `window score does not depend on the search span (max difference ${worst.toExponential(1)})`);
+  const { snapshot } = await import('../app/js/engine.js');
+  const ser = siteSeries({ lat: -89.53432, lon: -150.05233, hz: null }, ephemTable(t0, step, 48), DEFAULTS);
+  let dp = 0; for (let i = 0; i < 48; i += 7) dp = Math.max(dp, Math.abs(snapshot({ lat: -89.53432, lon: -150.05233, hz: null }, t0 + i * step, DEFAULTS).power - ser.power[i]));
+  ok(dp < 1e-3, `snapshot and time series agree on solar power (float32 storage) (max difference ${dp.toExponential(1)} W)`);
+  const { runJob } = await import('../app/js/jobs.js');
+  const msgs = [];
+  const mk = (id) => ({ type: 'scan', id, t0, step, n: 24 * 10, sites: [{ id: 'a', name: 'A', lat: -89.5, lon: 0, hz: null }], opts: DEFAULTS });
+  await Promise.all([runJob(mk(1), (m) => msgs.push([1, m])), runJob(mk(2), (m) => msgs.push([2, m]))]);
+  ok(msgs.length > 4 && msgs.every(([who, m]) => m.id === who), `overlapping jobs keep their own message ids (${msgs.length} messages)`);
+}
+
+// 9. Performance: one year hourly ephemeris
 const tp = performance.now(); ephemTable(t0, 3600e3, 8760); const ms = performance.now() - tp;
 ok(ms < 1500, `one year of hourly ephemeris in ${ms.toFixed(0)} ms`);
 

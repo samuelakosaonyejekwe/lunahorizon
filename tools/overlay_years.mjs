@@ -5,10 +5,10 @@ import { Worker, isMainThread, parentPort, workerData } from 'node:worker_thread
 import fs from 'node:fs';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { ephem, siteFrame, topo } from '../app/js/astro.js';
+import { ephem, siteFrame, topo, MOON_R_KM } from '../app/js/astro.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const R_M = 1737400;
+const R_M = MOON_R_KM * 1000;
 const HALF = 200e3, CELL = 1000, N = Math.round(2 * HALF / CELL);
 const NR = 180, ND = 260, DMIN = 150, DMAX = 200e3;
 const Y0 = 2026, NY = 19, STEP_H = 6;

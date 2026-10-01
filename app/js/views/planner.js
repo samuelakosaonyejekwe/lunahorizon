@@ -16,8 +16,15 @@ const PROFILES = {
 };
 const FAILS = [[1, 'not enough sunlight'], [2, 'shadow too long'], [4, 'not enough comms'], [8, 'comms blackout too long'], [16, 'landing conditions not met']];
 
+// Constraints shared in a link are untrusted: keep only known keys, clamped to the slider ranges
+const C_RANGES = { durH: [24, 2400], minLitPct: [0, 100], maxDarkH: [0, 300], minCommPct: [0, 100], maxNoCommH: [0, 400], landSunMin: [-2, 30], landSunMax: [0, 90] };
 function parseC(v) {
-  try { return v ? JSON.parse(atob(v)) : {}; } catch { return {}; }
+  let raw;
+  try { raw = v ? JSON.parse(atob(v)) : {}; } catch { return {}; }
+  const out = {};
+  for (const [k, [lo, hi]] of Object.entries(C_RANGES)) if (Number.isFinite(+raw[k])) out[k] = Math.min(hi, Math.max(lo, +raw[k]));
+  for (const k of ['useDSN', 'requireLanding']) if (typeof raw[k] === 'boolean') out[k] = raw[k];
+  return out;
 }
 
 export function mount(root) {
@@ -28,7 +35,7 @@ export function mount(root) {
     c: { ...PROFILES[prof], ...parseC(q.c) },
     sites: (q.sites ? q.sites.split(',') : ['connecting-ridge', 'peak-near-shackleton', 'nobile-rim-2', 'mons-mouton', 'malapert-massif', 'de-gerlache-rim-2']).filter(getSite),
     start: isFinite(parseIso(q.start)) ? parseIso(q.start) : startOfDayUTC(Date.now()),
-    months: +q.months || 12,
+    months: Math.min(24, Math.max(1, Math.round(+q.months) || 12)),   // links are user input: keep the search bounded
     res: null,
   };
 
@@ -59,7 +66,7 @@ export function mount(root) {
           h('button.btn.small.ghost', { onclick: () => { st.sites = []; renderChips(); } }, 'Clear')),
         chipBox,
         h('div.hr'),
-        h('div.row', h('label.field', { style: { width: '170px' } }, h('span', 'Search from (UTC)'), startIn), h('label.field', { style: { width: '150px' } }, h('span', 'Search span'), monthsIn),
+        h('div.row', h('label.field', { style: { width: '170px' } }, h('span', `Search from (${settings.tz === 'utc' ? 'UTC' : 'local'})`), startIn), h('label.field', { style: { width: '150px' } }, h('span', 'Search span'), monthsIn),
           h('div', { style: { flex: 1 } }), h('button.btn.primary', { onclick: run }, icon(ICONS.search), 'Find windows'))),
       status, summaryBox,
       h('div.card', h('header', h('h2', 'Feasibility calendar'), h('span.muted', { style: { fontSize: '13px' } }, 'best landing time each day · gray = no feasible landing'), h('div.spacer'),

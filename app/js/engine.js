@@ -1,5 +1,5 @@
 // Visibility, power and communications engine. Pure functions over typed arrays, shared by the UI thread and the worker.
-import { ephem, siteFrame, topo, stationMoonElevation, DSN, earthPhase, diskFraction, relayPosition, relaySeesEarth, AU_KM, SUN_R_KM, EARTH_R_KM, R2D } from './astro.js';
+import { ephem, siteFrame, topo, stationMoonElevation, DSN, earthPhase, diskFraction, relayPosition, relaySeesEarth, AU_KM, SUN_R_KM, EARTH_R_KM, MOON_R_KM, R2D } from './astro.js';
 
 export const HOUR = 3600000;
 export const DAY = 86400000;
@@ -40,6 +40,18 @@ export function encodeHorizon(hz) {
   let s = '';
   for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
   return btoa(s);
+}
+
+/**
+ * Solar-array output (W). flux in W/m², Sun elevation/azimuth in degrees, frac = visible fraction of the solar disk.
+ * Array types: 'vtrack' vertical and turning to face the Sun; 'vfixed' vertical facing o.panelAz; 'horizontal' on the deck.
+ */
+export function arrayPower(o, flux, elDeg, azDeg, frac) {
+  const el = elDeg * Math.PI / 180;
+  const inc = o.panel === 'horizontal' ? Math.max(0, Math.sin(el))
+    : o.panel === 'vfixed' ? Math.max(0, Math.cos(el) * Math.cos((azDeg - o.panelAz) * Math.PI / 180))
+      : Math.max(0, Math.cos(el));
+  return flux * o.panelArea * o.panelEff * inc * frac;
 }
 
 /** Horizon elevation at azimuth (deg), linear interpolation on a uniform azimuth grid */
@@ -91,7 +103,6 @@ export function siteSeries(site, tab, opts = DEFAULTS) {
     relayVis: new Uint8Array(n), relayLink: new Uint8Array(n), comms: new Uint8Array(n), commsLos: new Uint8Array(n),
   };
   const v = [0, 0, 0];
-  const panelAz = o.panelAz * Math.PI / 180;
   let soc = o.batteryWh;
   const dtH = tab.step / HOUR;
   for (let i = 0; i < n; i++) {
@@ -128,14 +139,8 @@ export function siteSeries(site, tab, opts = DEFAULTS) {
     s.comms[i] = s.dte[i] | s.relayLink[i];
     s.commsLos[i] = s.earthVis[i] | relayUp;
 
-    // Solar power
-    const flux = SOLAR_CONSTANT * (AU_KM / ts.dist) ** 2;
-    const elR = ts.el * Math.PI / 180;
-    let inc = 0;
-    if (o.panel === 'horizontal') inc = Math.max(0, Math.sin(elR));
-    else if (o.panel === 'vfixed') inc = Math.max(0, Math.cos(elR) * Math.cos(ts.az * Math.PI / 180 - panelAz));
-    else inc = Math.max(0, Math.cos(elR));
-    const p = flux * o.panelArea * o.panelEff * inc * sf;
+    // Solar power; the battery starts full at the start of the series
+    const p = arrayPower(o, SOLAR_CONSTANT * (AU_KM / ts.dist) ** 2, ts.el, ts.az, sf);
     s.power[i] = p;
     soc = Math.min(o.batteryWh, Math.max(0, soc + (p - o.loadW) * dtH));
     s.soc[i] = soc;
@@ -209,15 +214,6 @@ export function summarize(s, opts = DEFAULTS) {
   };
 }
 
-/** Transition events (rise/set) for a flag array */
-export function events(flag, t0, step) {
-  const ev = [];
-  for (let i = 1; i < flag.length; i++) {
-    if (flag[i] !== flag[i - 1]) ev.push({ t: t0 + i * step, on: !!flag[i] });
-  }
-  return ev;
-}
-
 /**
  * Landing-window search. For each candidate start (every `startStep` samples) evaluate a mission of `durSteps`.
  * Returns Float32 arrays: score (0..100, -1 infeasible) and components, for the calendar and ranking.
@@ -230,7 +226,6 @@ export function windowScan(s, durSteps, startStep, c) {
   for (let i = 0; i < s.n; i++) {
     pl[i + 1] = pl[i] + s.lit[i]; pe[i + 1] = pe[i] + s.commsLos[i]; pd[i + 1] = pd[i] + s.comms[i]; pp[i + 1] = pp[i] + s.power[i];
   }
-  // run lengths ending at i (dark) to compute max gap inside a window in O(window) worst case but typically fast
   const out = {
     n: nStarts, startStep, durSteps,
     score: new Float32Array(nStarts), lit: new Float32Array(nStarts), earth: new Float32Array(nStarts), dte: new Float32Array(nStarts),
@@ -257,7 +252,8 @@ export function windowScan(s, durSteps, startStep, c) {
     let mc = Infinity;
     for (let i = a; i < b; i++) { const v = s.sunEl[i] - s.sunHz[i]; if (v < mc) mc = v; }
     const clearTerm = Math.max(0, Math.min(1, (mc + 0.5) / 2));
-    const q = 0.35 * lit + 0.3 * comm + 0.15 * Math.max(0, 1 - dk / Math.max(1, s.n * h / 10)) + 0.2 * clearTerm;
+    // shadow term: fraction of the stay NOT spent in the longest shadow (independent of the search span)
+    const q = 0.35 * lit + 0.3 * comm + 0.15 * Math.max(0, 1 - dk / (durSteps * h)) + 0.2 * clearTerm;
     out.minClear[k] = mc;
     out.score[k] = fail ? -1 : q * 100;
     out.lit[k] = lit * 100; out.earth[k] = ear * 100; out.dte[k] = dte * 100;
@@ -279,7 +275,6 @@ export function snapshot(site, ms, opts = DEFAULTS) {
   const sunFrac = diskFraction(ts.el - shz, sunR);
   const earthFrac = diskFraction(te.el - ehz, earthR);
   const flux = SOLAR_CONSTANT * (AU_KM / ts.dist) ** 2;
-  const elR = ts.el * Math.PI / 180;
   let relay = null;
   if (o.relay && o.relay !== 'none') {
     const rp = relayPosition(o.relay, e);
@@ -287,17 +282,14 @@ export function snapshot(site, ms, opts = DEFAULTS) {
     const rhz = horizonAt(site.hz, tr.az);
     const vis = tr.el - rhz >= o.relayMaskDeg, seesEarth = relaySeesEarth(rp, e.earth);
     const dsnUp = dsn.some((d) => d.el >= o.dsnMinEl);
-    relay = { az: tr.az, el: tr.el, hz: rhz, dist: tr.dist, alt: Math.hypot(...rp) - 1737.4, vis, seesEarth, link: vis && seesEarth && (dsnUp || !o.requireDSN) };
+    relay = { az: tr.az, el: tr.el, hz: rhz, dist: tr.dist, alt: Math.hypot(...rp) - MOON_R_KM, vis, seesEarth, link: vis && seesEarth && (dsnUp || !o.requireDSN) };
   }
-  let inc = o.panel === 'horizontal' ? Math.max(0, Math.sin(elR))
-    : o.panel === 'vfixed' ? Math.max(0, Math.cos(elR) * Math.cos((ts.az - o.panelAz) * Math.PI / 180))
-      : Math.max(0, Math.cos(elR));
   return {
     t: ms,
     sun: { az: ts.az, el: ts.el, hz: shz, r: sunR, frac: sunFrac, dist: ts.dist, flux },
     earth: { az: te.az, el: te.el, hz: ehz, r: earthR, frac: earthFrac, dist: te.dist, phase: earthPhase(e) },
     dsn,
-    power: flux * o.panelArea * o.panelEff * inc * sunFrac,
+    power: arrayPower(o, flux, ts.el, ts.az, sunFrac),
     lit: sunFrac >= o.sunMinFrac && sunFrac > 0,
     earthVis: te.el - ehz >= o.earthMarginDeg,
     relay,

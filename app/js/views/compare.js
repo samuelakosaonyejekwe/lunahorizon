@@ -28,8 +28,8 @@ export function mount(root) {
   const st = {
     sites: (q.sites ? q.sites.split(',') : PRESETS.artemis.slice(0, 6)).filter(getSite),
     start: isFinite(parseIso(q.start)) ? parseIso(q.start) : startOfDayUTC(Date.now()),
-    days: +q.days || 90,
-    metric: q.metric || 'lit',
+    days: Math.min(730, Math.max(1, Math.round(+q.days) || 90)),     // links are user input: keep the run bounded
+    metric: { dte: 'comms' }[q.metric] || (['lit', 'earth', 'comms', 'both'].includes(q.metric) ? q.metric : 'lit'),
     sort: q.sort || 'sunPct', dir: -1,
     res: null, busy: false,
   };
@@ -42,7 +42,7 @@ export function mount(root) {
   const tableBox = h('div.tablewrap');
   const laneBox = h('div.chart', { style: { height: '300px' } });
   const heatBox = h('div.chart.heat', { style: { height: '280px' } });
-  const metricSeg = h('div.seg', [['lit', 'Sunlit'], ['earth', 'Earth'], ['dte', 'Comms'], ['both', 'Sun+Earth']].map(([k, l]) =>
+  const metricSeg = h('div.seg', [['lit', 'Sunlit'], ['earth', 'Earth'], ['comms', 'Comms'], ['both', 'Sun+Earth']].map(([k, l]) =>
     h('button', { class: k === st.metric ? 'on' : '', onclick: (e) => { st.metric = k; [...metricSeg.children].forEach((b) => b.classList.toggle('on', b === e.target)); save(); heat.redraw(); updRamp(); } }, l)));
 
   // ---- 18.6-year cycle
@@ -101,7 +101,7 @@ export function mount(root) {
         h('button.btn.small.ghost', { onclick: () => { st.sites = []; renderChips(); } }, 'Clear')),
       chipBox,
       h('div.hr'),
-      h('div.row', h('label.field', { style: { width: '170px' } }, h('span', 'Start (UTC day)'), startIn), h('div.field', h('span', 'Period'), durSeg),
+      h('div.row', h('label.field', { style: { width: '170px' } }, h('span', `Start (${settings.tz === 'utc' ? 'UTC' : 'local'} day)`), startIn), h('div.field', h('span', 'Period'), durSeg),
         h('div', { style: { flex: 1 } }), h('button.btn.primary', { onclick: run }, icon(ICONS.compare), 'Compare'))),
     status,
     h('div.card', { style: { marginBottom: '16px' } }, h('header', h('h2', 'Ranking'), h('span.muted', { style: { fontSize: '13px' } }, 'click a column to sort · ★ best'), h('div.spacer'),
@@ -127,7 +127,7 @@ export function mount(root) {
       lanes: [{ name: 'Sunlit', data: r.lit, color: c.sun }, { name: 'Earth in view', data: r.earthVis, color: c.earth }] })) };
   };
   const lanes = swimlanes(laneBox, laneCfg, (row, t) => { location.hash = `#/site/${row.id}?t=${isoMin(t)}&span=30`; });
-  const HUES = { lit: 38, earth: 214, dte: 214, both: 158 };
+  const HUES = { lit: 38, earth: 214, comms: 250, both: 158 };
   const heat = heatmap(heatBox, () => {
     if (!st.res) return null;
     const key = st.metric;
@@ -136,7 +136,7 @@ export function mount(root) {
       rows: st.res.results.map((r) => ({ id: r.id, label: getSite(r.id)?.name || r.id, values: r.daily[key] })),
       cellTip: (row, d) => {
         const r = st.res.results.find((x) => x.id === row.id);
-        return `<b>${row.label}</b><br>${fmtTime(st.res.t0 + d * DAY, { dateOnly: true })}<br>Sunlit ${fmtPct(r.daily.lit[d])} · Earth ${fmtPct(r.daily.earth[d])}<br>Comms ${fmtPct(r.daily.dte[d])} · Sun+Earth ${fmtPct(r.daily.both[d])}<br>Mean power ${r.daily.power[d].toFixed(0)} W`;
+        return `<b>${row.label}</b><br>${fmtTime(st.res.t0 + d * DAY, { dateOnly: true })}<br>Sunlit ${fmtPct(r.daily.lit[d])} · Earth ${fmtPct(r.daily.earth[d])}<br>Comms ${fmtPct(r.daily.comms[d])} · Sun+Earth ${fmtPct(r.daily.both[d])}<br>Mean power ${r.daily.power[d].toFixed(0)} W`;
       },
     };
   }, (row, d) => { location.hash = `#/site/${row.id}?t=${isoMin(st.res.t0 + d * DAY + 12 * HOUR)}&span=30`; });

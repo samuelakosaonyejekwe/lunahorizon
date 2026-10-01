@@ -115,7 +115,7 @@ $('#btn-share').addEventListener('click', async () => {
   try {
     if (navigator.share && matchMedia('(pointer: coarse)').matches) await navigator.share({ title: document.title, url });
     else { await navigator.clipboard.writeText(url); toast('Link copied: it reopens this exact view'); }
-  } catch { toast(url, 6000); }
+  } catch (e) { if (e && e.name !== 'AbortError') toast(url, 6000); }   // closing the share sheet is not an error
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => window.dispatchEvent(new Event('themechange')));
 

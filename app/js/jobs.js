@@ -2,9 +2,9 @@
 // Runs inside a Web Worker (worker.js) or, on browsers that cannot start module workers, on the page itself.
 import { ephemTable, siteSeries, summarize, windowScan, HOUR, DAY } from './engine.js';
 import { gunzip } from './gz.js';
+import { MOON_R_KM } from './astro.js';
 
-const R_M = 1737400;
-let curId = 0;
+const R_M = MOON_R_KM * 1000;
 
 /** Fetch a gzip file, reporting compressed bytes as they arrive; returns the decompressed bytes */
 async function fetchGz(url, onBytes) {
@@ -21,11 +21,14 @@ async function fetchGz(url, onBytes) {
 }
 
 const NEAR_KM = 100;            // fine 400 m terrain is fetched within this radius of the tapped spot; beyond it the 1.6 km grid
-let farG = null, nearG = null;
-const haveTiles = new Set();
+let farG = null, nearG = null, farLoad = null;
+const tileLoads = new Map();    // tile key -> promise, shared by overlapping requests so nothing downloads twice
 
-/** Make sure the coarse far-field grid and the fine tiles around (lat, lon) are loaded; download only what is missing */
-async function ensureTerrain(base, meta, lat, lon, nearKm = NEAR_KM) {
+/**
+ * Make sure the coarse far-field grid and the fine tiles around (lat, lon) are loaded; download only what is missing.
+ * `send` posts progress for the job that asked (jobs can overlap in the worker).
+ */
+async function ensureTerrain(base, meta, lat, lon, send, nearKm = NEAR_KM) {
   const tm = meta.dem_near_tiles;
   if (!nearG) nearG = { a: new Int16Array(tm.n * tm.n).fill(-32768), half_m: tm.half_m, cell: tm.cell, n: tm.n };
   const [px, py] = llToXY(lat * Math.PI / 180, lon * Math.PI / 180);
@@ -33,34 +36,45 @@ async function ensureTerrain(base, meta, lat, lon, nearKm = NEAR_KM) {
   for (let r = 0; r < tm.rows; r++) for (let c = 0; c < tm.rows; c++) {
     const x0 = -tm.half_m + c * span, x1 = x0 + span, y1 = tm.half_m - r * span, y0 = y1 - span;
     const dx = Math.max(x0 - px, 0, px - x1), dy = Math.max(y0 - py, 0, py - y1);
-    if (Math.hypot(dx, dy) <= nearKm * 1000 && !haveTiles.has(r * 1000 + c)) want.push([r, c]);
+    if (Math.hypot(dx, dy) <= nearKm * 1000) want.push([r, c]);
   }
-  const jobs = want.length + (farG ? 0 : 1);
-  if (!jobs) return;
   // progress by compressed bytes (sizes come from meta.json), so one large file does not stall the percentage
-  const total = want.reduce((a, [r, c]) => a + (tm.bytes?.[r * tm.rows + c] || 30000), 0) + (farG ? 0 : (meta.dem_far.bytes || 560000));
-  let done = 0, bytes = 0, lastMsg = 0;
+  const missing = want.filter(([r, c]) => !tileLoads.has(r * 1000 + c));
+  if (!missing.length && farLoad) { await Promise.all([farLoad, ...want.map(([r, c]) => tileLoads.get(r * 1000 + c))]); return; }
+  // progress by compressed bytes (sizes come from meta.json), so one large file does not stall the percentage
+  const total = missing.reduce((a, [r, c]) => a + (tm.bytes?.[r * tm.rows + c] || 30000), 0) + (farLoad ? 0 : (meta.dem_far.bytes || 560000));
+  let bytes = 0, lastMsg = 0;
   const report = (force) => {
     const now = Date.now();
     if (!force && now - lastMsg < 250) return;
     lastMsg = now;
-    post({ type: 'progress', id: curId, msg: `Downloading LOLA terrain… ${Math.min(99, Math.round(bytes / total * 100))}% (${(bytes / 1e6).toFixed(2)} of ${(total / 1e6).toFixed(2)} MB)` });
+    send({ type: 'progress', msg: `Downloading LOLA terrain… ${Math.min(99, Math.round(bytes / total * 100))}% (${(bytes / 1e6).toFixed(2)} of ${(total / 1e6).toFixed(2)} MB)` });
   };
   const onBytes = (n) => { bytes += n; report(false); };
   report(true);
-  const tasks = want.map(([r, c]) => async () => {
-    const buf = new Int16Array(await fetchGz(`${base}data/dem_tiles/t_${r}_${c}.bin.gz`, onBytes));
-    const T = tm.tile, n = tm.n;
-    for (let i = 0; i < T && r * T + i < n; i++) {
-      const row = (r * T + i) * n + c * T, w = Math.min(T, n - c * T);
-      nearG.a.set(buf.subarray(i * T, i * T + w), row);
-    }
-    haveTiles.add(r * 1000 + c); done++; report(true);
+  // queue: at most 6 downloads at a time
+  const queue = [];
+  let active = 0;
+  const limit = (fn) => new Promise((res, rej) => {
+    const run = () => { active++; fn().then(res, rej).finally(() => { active--; if (queue.length) queue.shift()(); }); };
+    active < 6 ? run() : queue.push(run);
   });
-  if (!farG) tasks.unshift(async () => { const a = new Int16Array(await fetchGz(base + 'data/dem_far.bin.gz', onBytes)); farG = { a, ...meta.dem_far }; done++; report(true); });
-  // up to 6 downloads at a time
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(6, tasks.length) }, async () => { while (next < tasks.length) await tasks[next++](); }));
+  if (!farLoad) {
+    farLoad = limit(async () => { const a = new Int16Array(await fetchGz(base + 'data/dem_far.bin.gz', onBytes)); farG = { a, ...meta.dem_far }; })
+      .catch((e) => { farLoad = null; throw e; });
+  }
+  for (const [r, c] of missing) {
+    const key = r * 1000 + c;
+    tileLoads.set(key, limit(async () => {
+      const buf = new Int16Array(await fetchGz(`${base}data/dem_tiles/t_${r}_${c}.bin.gz`, onBytes));
+      const T = tm.tile, n = tm.n;
+      for (let i = 0; i < T && r * T + i < n; i++) {
+        const row = (r * T + i) * n + c * T, w = Math.min(T, n - c * T);
+        nearG.a.set(buf.subarray(i * T, i * T + w), row);
+      }
+    }).catch((e) => { tileLoads.delete(key); throw e; }));
+  }
+  await Promise.all([farLoad, ...want.map(([r, c]) => tileLoads.get(r * 1000 + c))]);
 }
 
 function demSample(g, x, y) {
@@ -83,7 +97,7 @@ function llToXY(lat, lon) {
 }
 
 /** Terrain horizon (0.5° bins) for a site; mast height in meters. */
-function computeHorizon(latDeg, lonDeg, mast) {
+function computeHorizon(latDeg, lonDeg, mast, send) {
   const phi1 = latDeg * Math.PI / 180, lam1 = lonDeg * Math.PI / 180;
   const [x0, y0] = llToXY(phi1, lam1);
   const h0 = heightAt(x0, y0);
@@ -100,7 +114,7 @@ function computeHorizon(latDeg, lonDeg, mast) {
   const sp1 = Math.sin(phi1), cp1 = Math.cos(phi1);
   for (let k = 0; k < NR; k++) {
     const th = k * 2 * Math.PI / NR, ct = Math.cos(th), st = Math.sin(th);
-    let best = -5;
+    let best = -15;                // floor only where a ray finds no terrain at all (as tools/build_data.py)
     for (let j = 0; j < ND; j++) {
       const sp2 = sp1 * cd[j] + cp1 * sd[j] * ct;
       const phi2 = Math.asin(Math.max(-1, Math.min(1, sp2)));
@@ -113,7 +127,7 @@ function computeHorizon(latDeg, lonDeg, mast) {
       if (el > best) best = el;
     }
     rays[k] = best;
-    if (k % 180 === 0) post({ type: 'progress', id: curId, msg: `Tracing terrain horizon… ${Math.round(k / NR * 100)}%` });
+    if (k % 180 === 0) send({ type: 'progress', msg: `Tracing terrain horizon… ${Math.round(k / NR * 100)}%` });
   }
   const hz = new Float32Array(720);
   for (let k = 0; k < 720; k++) hz[k] = Math.max(rays[(2 * k - 1 + NR) % NR], rays[2 * k], rays[2 * k + 1]);
@@ -123,31 +137,28 @@ function computeHorizon(latDeg, lonDeg, mast) {
 function dailyAgg(s, t0, stepMs) {
   const perDay = Math.round(DAY / stepMs);
   const nd = Math.floor(s.n / perDay);
-  const lit = new Float32Array(nd), earth = new Float32Array(nd), dte = new Float32Array(nd), both = new Float32Array(nd), power = new Float32Array(nd);
+  const lit = new Float32Array(nd), earth = new Float32Array(nd), comms = new Float32Array(nd), both = new Float32Array(nd), power = new Float32Array(nd);
   for (let d = 0; d < nd; d++) {
     let a = 0, b = 0, c = 0, e = 0, p = 0;
     for (let i = d * perDay; i < (d + 1) * perDay; i++) {
       a += s.lit[i]; b += s.earthVis[i]; c += s.comms[i]; e += s.lit[i] & s.earthVis[i]; p += s.power[i];
     }
-    lit[d] = a / perDay * 100; earth[d] = b / perDay * 100; dte[d] = c / perDay * 100; both[d] = e / perDay * 100; power[d] = p / perDay;
+    lit[d] = a / perDay * 100; earth[d] = b / perDay * 100; comms[d] = c / perDay * 100; both[d] = e / perDay * 100; power[d] = p / perDay;
   }
-  return { nd, lit, earth, dte, both, power };
+  return { nd, lit, earth, comms, both, power };   // comms = direct-to-Earth, or via the relay when one is set
 }
 
-let post = () => {};
-
-/** Run one job message; results and progress go to postFn(message, transferList) */
+/** Run one job message; results and progress go to postFn(message, transferList), tagged with this job's id */
 export async function runJob(m, postFn) {
-  post = postFn;
-  curId = m.id;
+  const post = (msg, transfer) => postFn({ ...msg, id: m.id }, transfer);
   try {
     if (m.type === 'scan') {
       const { t0, step, n, sites, opts, window: win, lanes } = m;
-      post({ type: 'progress', id: m.id, msg: 'Computing Sun & Earth ephemeris…' });
+      post({ type: 'progress', msg: 'Computing Sun & Earth ephemeris…' });
       const tab = ephemTable(t0, step, n, opts.relay);
       const results = [];
       for (let i = 0; i < sites.length; i++) {
-        post({ type: 'progress', id: m.id, msg: `Analyzing ${sites[i].name} (${i + 1}/${sites.length})…` });
+        post({ type: 'progress', msg: `Analyzing ${sites[i].name} (${i + 1}/${sites.length})…` });
         const s = siteSeries(sites[i], tab, opts);
         const r = { id: sites[i].id, stats: summarize(s, opts), daily: dailyAgg(s, t0, step) };
         if (lanes) {
@@ -160,13 +171,13 @@ export async function runJob(m, postFn) {
         }
         results.push(r);
       }
-      post({ type: 'result', id: m.id, results, dsn: lanes ? tab.dsn : null });
+      post({ type: 'result', results, dsn: lanes ? tab.dsn : null });
     } else if (m.type === 'years') {
       // Annual statistics for each site across a run of years (one shared ephemeris per year)
       const { sites, opts, year0, years, stepH } = m;
       const out = sites.map(() => ({ sun: new Float32Array(years), earth: new Float32Array(years), both: new Float32Array(years), comms: new Float32Array(years), dark: new Float32Array(years) }));
       for (let k = 0; k < years; k++) {
-        post({ type: 'progress', id: m.id, msg: `Year ${year0 + k} (${k + 1}/${years})…` });
+        post({ type: 'progress', msg: `Year ${year0 + k} (${k + 1}/${years})…` });
         const a = Date.UTC(year0 + k, 0, 1), b = Date.UTC(year0 + k + 1, 0, 1), step = stepH * HOUR;
         const tab = ephemTable(a, step, Math.round((b - a) / step), opts.relay);
         sites.forEach((site, i) => {
@@ -174,17 +185,15 @@ export async function runJob(m, postFn) {
           out[i].sun[k] = x.sunPct; out[i].earth[k] = x.earthPct; out[i].both[k] = x.bothPct; out[i].comms[k] = x.commsPct; out[i].dark[k] = x.longestDarkH;
         });
       }
-      post({ type: 'result', id: m.id, results: sites.map((s, i) => ({ id: s.id, ...out[i] })) });
+      post({ type: 'result', results: sites.map((s, i) => ({ id: s.id, ...out[i] })) });
     } else if (m.type === 'horizon') {
-      await ensureTerrain(m.base, m.meta, m.lat, m.lon, m.nearKm);
-      const { hz, h0 } = computeHorizon(m.lat, m.lon, m.mast || 2);
-      post({ type: 'result', id: m.id, hz, h0 }, [hz.buffer]);
-    } else if (m.type === 'height') {
-      await ensureTerrain(m.base, m.meta, m.lat, m.lon);
-      const [x, y] = llToXY(m.lat * Math.PI / 180, m.lon * Math.PI / 180);
-      post({ type: 'result', id: m.id, h: heightAt(x, y) });
+      await ensureTerrain(m.base, m.meta, m.lat, m.lon, post, m.nearKm);
+      const { hz, h0 } = computeHorizon(m.lat, m.lon, m.mast || 2, post);
+      post({ type: 'result', hz, h0 }, [hz.buffer]);
+    } else {
+      throw new Error('Unknown job type: ' + m.type);
     }
   } catch (e) {
-    post({ type: 'error', id: m.id, msg: e.message || String(e) });
+    post({ type: 'error', msg: e.message || String(e) });
   }
 }

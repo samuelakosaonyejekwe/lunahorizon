@@ -37,10 +37,11 @@ const isTouchDevice = () => matchMedia('(pointer: coarse)').matches || navigator
 const dismissed = () => { try { return localStorage.getItem(KEY) === 'dismissed'; } catch { return false; } };
 function dismiss() { try { localStorage.setItem(KEY, 'dismissed'); } catch { /* private mode */ } }
 
-/** Open the current page in Chrome on Android (falls back to staying here if Chrome is missing) */
+/** Open the app's start page in Chrome on Android (an intent URL may contain only one '#', so the route is dropped) */
 function chromeIntent() {
   const u = new URL(location.href);
-  return `intent://${u.host}${u.pathname}${u.search}${u.hash}#Intent;scheme=${u.protocol.replace(':', '')};package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(location.href)};end`;
+  const page = u.origin + u.pathname;
+  return `intent://${u.host}${u.pathname}#Intent;scheme=${u.protocol.replace(':', '')};package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(page)};end`;
 }
 
 async function promptInstall() {

@@ -1,28 +1,32 @@
 """
-Builds every static data product the web app ships, from NASA LOLA polar DEMs.
+Builds the static data products the web app ships, from NASA LOLA polar DEMs.
 
-Inputs (raw/):  ldem_80s_80m.img  (PDS LOLA GDR, 80 m/px, 80°S cap)
-                ldem_75s_240m.img (PDS LOLA GDR, 240 m/px, 75°S cap)
-Screening maps come from tools/overlay.mjs (run it first).
+Inputs (raw/, downloaded as described in README "Rebuild the data"):
+  ldem_80s_80m.img     PDS LOLA GDR, 80 m/px, 80°S cap
+  ldem_75s_240m.img    PDS LOLA GDR, 240 m/px, 75°S cap
+  win/<site>_<res>.npz 5 m and 20 m windows around each polar site (tools/fetch_windows.py)
+Site list: tools/sites.py.
 
-Outputs (app/data/):
-  sites.json        curated sites with 0.5° terrain horizon profiles (2 m observer height)
-  basemap.jpg       hillshade of the 80°S cap for the site map
-  basemap_zoom.jpg  hillshade of the inner ±80 km
-  overlay.png       R = % time Sun visible, G = % time Earth visible, B = % time both (one year, 1 km grid; computed by tools/overlay.mjs)
-  raw/dem_near.bin.gz  int16 heights (m), 80°S cap resampled to 400 m; tools/build_dem_tiles.py splits it into app/data/dem_tiles/
-  dem_far.bin.gz    int16 heights (m), 75°S cap resampled to 1600 m
-  meta.json         grid geometry for all of the above
+Outputs (app/data/ unless noted):
+  sites.json           curated sites with 0.5° terrain horizons for a sensor 2 m above the ground
+  horizons10.json      the same horizons for a 10 m mast (loaded by the app only when that height is selected)
+  basemap.jpg          hillshade of the ±310 km polar region for the site map
+  basemap_zoom.jpg     hillshade of the inner ±80 km
+  dem_far.bin.gz       int16 heights (m), 75°S cap resampled to 1600 m (browser horizon engine, far field)
+  raw/dem_near.bin.gz  int16 heights (m), 80°S cap resampled to 400 m; tools/build_dem_tiles.py tiles it for the browser
+  meta.json            grid geometry for all of the above
+The yearly sunlight / Earth-visibility maps come from tools/overlay_years.mjs + tools/build_years.py,
+and the 3D tiles from tools/build_3d.py.
 """
-import json, sys, os, gzip, base64, math, datetime as dt
+import json, sys, os, gzip, base64
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sites import SITES, DEM_LIMIT_LAT, MOON_R_M as R_M  # noqa: E402  (tools/sites.py)
 import numpy as np
 from PIL import Image
 
-R_M = 1737400.0
 ROOT = __file__.rsplit('/tools/', 1)[0]
 RAW = ROOT + '/raw/'
 OUT = ROOT + '/app/data/'
-SKIP_MAP = '--skip-map' in sys.argv
 
 # ---------------------------------------------------------------- DEMs
 d80 = np.fromfile(RAW + 'ldem_80s_80m.img', dtype='<i2').reshape(7600, 7600).astype(np.float32) * 0.5
@@ -35,13 +39,6 @@ def ll_to_xy(lat, lon):
     """South polar stereographic (PDS convention), meters. lat/lon radians."""
     rho = 2 * R_M * np.tan(np.pi / 4 + lat / 2)
     return rho * np.sin(lon), rho * np.cos(lon)
-
-
-def xy_to_ll(x, y):
-    rho = np.hypot(x, y)
-    lat = 2 * np.arctan(rho / (2 * R_M)) - np.pi / 2
-    lon = np.arctan2(x, y)
-    return lat, lon
 
 
 def sample(g, x, y):
@@ -129,56 +126,13 @@ def horizon(lat_deg, lon_deg, mast=2.0, n_rays=1440, dmax=260e3, n_d=1400, fine=
     el = np.degrees(np.arctan2(r2 * np.cos(delta) - r1, r2 * np.sin(delta)))
     el = np.where(np.isnan(el), -90, el)
     hz = el.max(axis=1)
-    return np.maximum(hz, -5.0), h0
+    return np.maximum(hz, -15.0), h0   # floor only where a ray finds no terrain at all
 
 
-# ---------------------------------------------------------------- sites
-# precision: 'published' = coordinates from a published source; 'region' = representative point inside an
-# Artemis III candidate region, auto-selected as the most-illuminated grid cell within `search_km`
-# of an approximate region center (see overlay computation); 'feature' = named-feature coordinates.
-SITES = [
-    dict(id='connecting-ridge', name='Connecting Ridge', group='Artemis', lat=-89.53432, lon=209.94767, precision='published',
-         src='Gracy & Lee, LPSC 2024 #1695', note='Ridge linking Shackleton and de Gerlache; among the best-lit terrain on the Moon.'),
-    dict(id='peak-near-shackleton', name='Peak near Shackleton', group='Artemis', lat=-89.01701, lon=126.27302, precision='published',
-         src='Gracy & Lee, LPSC 2024 #1695', note='Massif near Shackleton overlooking ice-bearing permanently shadowed regions.'),
-    dict(id='nobile-rim-2', name='Nobile Rim 2', group='Artemis', lat=-84.20156, lon=60.69989, precision='published',
-         src='Evaluating potential landing sites for Artemis III (Acta Astronautica 2024), best point in DM2',
-         note='One of the 9 Artemis III candidate regions (Oct 2024).'),
-    dict(id='mons-mouton', name='Mons Mouton', group='Artemis', lat=-84.6, lon=31.0, precision='region', search_km=6,
-         src='IAU feature center 84.6°S 31.0°E', note='Broad flat-topped mountain; one of the 9 Artemis III candidate regions.'),
-    dict(id='malapert-massif', name='Malapert Massif', group='Artemis', lat=-86.0, lon=0.0, precision='region', search_km=8,
-         src='Approximate region center', note='Tall massif with good Earth visibility; Artemis III candidate region.'),
-    dict(id='nobile-rim-1', name='Nobile Rim 1', group='Artemis', lat=-85.45, lon=38.0, precision='region', search_km=8,
-         src='Approximate region center (west rim of Nobile)', note='Artemis III candidate region on the rim of Nobile crater.'),
-    dict(id='de-gerlache-rim-2', name='de Gerlache Rim 2', group='Artemis', lat=-88.75, lon=-68.0, precision='region', search_km=8,
-         src='Approximate region center', note='Artemis III candidate region on the rim of de Gerlache crater.'),
-    dict(id='haworth', name='Haworth', group='Artemis', lat=-86.9, lon=-20.0, precision='region', search_km=10,
-         src='Approximate region center', note='Artemis III candidate region near Haworth crater.'),
-    dict(id='slater-plain', name='Slater Plain', group='Artemis', lat=-87.9, lon=-125.0, precision='region', search_km=10,
-         src='Approximate region center', note='Artemis III candidate region; plains near Slater crater.'),
-    dict(id='peak-near-cabeus-b', name='Peak near Cabeus B', group='Artemis', lat=-84.3, lon=-60.0, precision='region', search_km=12,
-         src='Approximate region center', note='Artemis III candidate region; high peak near Cabeus B.'),
-    dict(id='im2-athena', name='IM-2 Athena (Mons Mouton)', group='CLPS', lat=-84.7906, lon=29.1957, precision='published',
-         src='Intuitive Machines / LROC, landed 2025-03-06', note='CLPS lander; touched down on the Mons Mouton plateau.'),
-    dict(id='im1-odysseus', name='IM-1 Odysseus (Malapert A)', group='CLPS', lat=-80.13, lon=1.44, precision='published',
-         src='Intuitive Machines / LROC, landed 2024-02-22', note='First CLPS landing; near Malapert A crater.'),
-    dict(id='shackleton-floor', name='Shackleton crater floor', group='Reference', lat=-89.67, lon=129.78, precision='feature',
-         src='IAU feature center', note='Permanently shadowed region: the Sun never clears the rim. Earth is never visible either.'),
-    dict(id='lcross', name='LCROSS impact (Cabeus)', group='Reference', lat=-84.675, lon=-48.725, precision='published',
-         src='LCROSS impact point, 2009', note='Permanently shadowed crater floor where water ice was detected.'),
-    # Mid-latitude sites: outside DEM coverage -> smooth horizon
-    dict(id='blue-ghost-m1', name='Blue Ghost M1 (Mare Crisium)', group='CLPS', lat=18.56, lon=61.81, precision='published',
-         src='Firefly Aerospace, landed 2025-03-02', note='Near side, low latitude: classic 14-day lunar day/night cycle, Earth always up.'),
-    dict(id='apollo-11', name='Apollo 11 (Tranquility Base)', group='Reference', lat=0.67408, lon=23.47297, precision='published',
-         src='NASA', note='Equatorial near side reference: Sun rises high, Earth hangs near zenith.'),
-    dict(id='schrodinger', name='Schrödinger basin (far side)', group='CLPS', lat=-75.0, lon=132.4, precision='feature',
-         src='IAU feature center; Blue Ghost M2 target region', note='Far side: Earth is never visible, so a relay satellite is required.'),
-]
 
 
 def main():
     meta = json.load(open(OUT + 'meta.json')) if os.path.exists(OUT + 'meta.json') else {}
-    prev = {s['id']: s for s in json.load(open(OUT + 'sites.json'))['sites']} if os.path.exists(OUT + 'sites.json') else {}
     # ------------------------------------------------ basemaps
     def hillshade(half_m, px, fine):
         xs = np.linspace(-half_m, half_m, px)
@@ -220,77 +174,37 @@ def main():
     if not os.path.exists(OUT + 'dem_far.bin.gz') or not os.path.exists(ROOT + '/raw/dem_near.bin.gz'):
         near, nn = resample(303e3, 400.0)
         far, nf = resample(455e3, 1600.0)
-        with gzip.open(ROOT + '/raw/dem_near.bin.gz', 'wb', 9) as f: f.write(near.tobytes())  # tiled by build_dem_tiles.py
-        with gzip.open(OUT + 'dem_far.bin.gz', 'wb', 9) as f: f.write(far.tobytes())
+        for path, arr in ((ROOT + '/raw/dem_near.bin.gz', near), (OUT + 'dem_far.bin.gz', far)):   # near grid is tiled by build_dem_tiles.py
+            with open(path, 'wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=9, mtime=0) as f: f.write(arr.tobytes())  # mtime=0: reproducible bytes
     meta['dem_near'] = dict(half_m=303e3, cell=400.0, n=nn)
     meta['dem_far'] = dict(half_m=455e3, cell=1600.0, n=nf)
     print('dems done', nn, nf)
 
-    # ------------------------------------------------ overlay maps
-    grid = None
-    if not SKIP_MAP and not os.path.exists(ROOT + '/raw/overlay_years.bin'):
-        grid = overlay(meta)   # single-year maps; the multi-year build (tools/build_years.py) supersedes them
-
     # ------------------------------------------------ sites
-    out = []
+    out, tall = [], {}
+    k = np.arange(720)
     for s in SITES:
         s = dict(s)
-        if s['precision'] == 'region' and s['id'] in prev:
-            # keep the representative point chosen on the first build so results stay comparable
-            p0 = prev[s['id']]
-            s['lat'], s['lon'], s['approx_lat'], s['approx_lon'] = p0['lat'], p0['lon'], p0.get('approx_lat', s['lat']), p0.get('approx_lon', s['lon'])
-        elif s['precision'] == 'region' and grid is not None:
-            s['lat'], s['lon'], s['approx_lat'], s['approx_lon'] = (*pick_best(grid, s), s['lat'], s['lon'])
-        on_dem = s['lat'] <= -79.0
-        if on_dem:
+        if s['lat'] <= DEM_LIMIT_LAT:
             wins = load_windows(s['id'])
-            k = np.arange(720)
-            for mast, key in ((2.0, 'horizon'), (10.0, 'horizon10')):
+            for mast in (2.0, 10.0):
                 hz, h0 = horizon(s['lat'], s['lon'], mast=mast, wins=wins)
                 hz720 = np.maximum.reduce([hz[(2 * k - 1) % 1440], hz[2 * k], hz[(2 * k + 1) % 1440]])
-                s[key] = base64.b64encode(np.round(hz720 * 100).astype('<i2').tobytes()).decode()
+                enc = base64.b64encode(np.round(hz720 * 100).astype('<i2').tobytes()).decode()
+                if mast == 2.0: s['horizon'] = enc
+                else: tall[s['id']] = enc
             s['elev_m'] = round(h0, 1)
             s['terrain'] = 'LOLA ' + ' + '.join([w['res'].replace('m', ' m') for w in wins] + ['80 m', '240 m'])
         else:
             s['elev_m'] = None
             s['horizon'] = None
-            s['horizon10'] = None
             s['terrain'] = 'smooth sphere (outside polar DEM)'
-        s.pop('search_km', None)
         s['lat'] = round(float(s['lat']), 5); s['lon'] = round(float(((s['lon'] + 180) % 360) - 180), 5)
         out.append(s)
         print(s['id'], s['lat'], s['lon'], s.get('elev_m'))
-    json.dump(dict(generated=dt.date.today().isoformat(), horizon_step_deg=0.5, mast_m=[2.0, 10.0], sites=out),
-              open(OUT + 'sites.json', 'w'), separators=(',', ':'))
+    json.dump(dict(horizon_step_deg=0.5, mast_m=2.0, sites=out), open(OUT + 'sites.json', 'w'), separators=(',', ':'))
+    json.dump(dict(horizon_step_deg=0.5, mast_m=10.0, horizons=tall), open(OUT + 'horizons10.json', 'w'), separators=(',', ':'))
     json.dump(meta, open(OUT + 'meta.json', 'w'), indent=1)
-
-
-def pick_best(grid, s):
-    lat0, lon0 = np.radians(s['lat']), np.radians(s['lon'])
-    x0, y0 = ll_to_xy(lat0, lon0)
-    X, Y, both, sunp = grid
-    dist = np.hypot(X - x0, Y - y0)
-    m = dist <= s['search_km'] * 1000
-    score = np.where(m, sunp + 0.5 * both, -1)
-    i = np.unravel_index(np.argmax(score), score.shape)
-    la, lo = xy_to_ll(X[i], Y[i])
-    return float(np.degrees(la)), float(np.degrees(lo))
-
-
-def overlay(meta):
-    """Loads the screening maps computed by tools/overlay.mjs (parallel Node job) and writes overlay.png."""
-    if not os.path.exists(ROOT + '/raw/overlay_rgb.bin'):
-        print('raw/overlay_rgb.bin missing: run `node tools/overlay.mjs` first; skipping overlay')
-        return None
-    o = json.load(open(ROOT + '/raw/overlay.json'))
-    n, half, cell = o['n'], o['half_m'], o['cell']
-    rgb = np.fromfile(ROOT + '/raw/overlay_rgb.bin', dtype=np.uint8).reshape(n, n, 3)
-    Image.fromarray(rgb).save(OUT + 'overlay.png', optimize=True)
-    meta['overlay'] = dict(half_m=half, cell=cell, n=n, year=o['year'], step_h=o['step_h'],
-                           desc='R = %% Sun center visible, G = %% Earth center visible, B = %% both; 2 m height; %d-azimuth horizon from 240 m LOLA' % o['rays'])
-    xs = (np.arange(n) + 0.5) * cell - half
-    X, Y = np.meshgrid(xs, -xs)
-    return (X, Y, rgb[..., 2] / 255.0, rgb[..., 0] / 255.0)
 
 
 if __name__ == '__main__':

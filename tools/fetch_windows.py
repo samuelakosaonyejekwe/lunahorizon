@@ -6,19 +6,20 @@ so the multi-gigabyte source grids never have to be downloaded whole.
    5 m/px window,  ±4 km, from LDEM_875S_5M (sites south of 87.5°S)
 
 Output: raw/win/<site>_<res>.npz with the int16 window and its pixel origin in the source grid.
-Usage: python3 tools/fetch_windows.py
+Usage: python3 tools/fetch_windows.py   (resumable: windows already on disk are skipped)
 """
-import json, os, math, sys, urllib.request
+import os, math, sys, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 ROOT = __file__.rsplit('/tools/', 1)[0]
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sites import SITES, MOON_R_M as R_M  # noqa: E402  (tools/sites.py)
 BASE = 'https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/polar/img/'
 GRIDS = {
     '20m': dict(file='ldem_80s_20m.img', n=30400, off=15199.5, scale=20.0, half_km=15.0, maxlat=-80.0),
     '5m': dict(file='ldem_875s_5m.img', n=30336, off=15167.5, scale=5.0, half_km=4.0, maxlat=-87.5),
 }
-R_M = 1737400.0
 OUT = ROOT + '/raw/win/'
 os.makedirs(OUT, exist_ok=True)
 
@@ -45,8 +46,7 @@ def fetch_row(url, line, s0, ns, n):
 
 
 def main():
-    sites = json.load(open(ROOT + '/app/data/sites.json'))['sites']
-    for s in sites:
+    for s in SITES:
         for res, g in GRIDS.items():
             if s['lat'] > g['maxlat']:
                 continue
@@ -61,7 +61,9 @@ def main():
             with ThreadPoolExecutor(32) as ex:
                 rows = list(ex.map(lambda li: fetch_row(url, li, s0, s1 - s0, g['n']), range(l0, l1)))
             arr = np.stack(rows)
-            np.savez_compressed(path, dem=arr, l0=l0, s0=s0, n=g['n'], off=g['off'], scale=g['scale'])
+            tmp = path + '.part.npz'                 # write then rename, so an interrupted run never leaves a half file
+            np.savez_compressed(tmp, dem=arr, l0=l0, s0=s0, n=g['n'], off=g['off'], scale=g['scale'])
+            os.replace(tmp, path)
             print(s['id'], res, arr.shape, 'height range', arr.min() * 0.5, arr.max() * 0.5, flush=True)
 
 
