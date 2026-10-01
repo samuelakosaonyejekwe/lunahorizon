@@ -1,6 +1,7 @@
 // App shell: router, settings dialog, theme, share, service worker.
 import { $, $$, h, settings, updateSettings, loadSites, toast } from './ui.js';
 import { RELAYS } from './astro.js';
+import { installSection } from './install.js';   // also captures the browser's install prompt early
 
 const ROUTES = {
   '': () => import('./views/home.js'),
@@ -86,6 +87,7 @@ function openSettings() {
           num('Cell efficiency', 'panelEff', 0.1, 0.4, 0.01, ''),
           num('Platform load', 'loadW', 10, 2000, 10, ' W'),
           num('Battery (usable)', 'batteryWh', 0, 20000, 100, ' Wh'))),
+      h('fieldset', h('legend', 'Install as an app'), installSection()),
       h('div.row', h('button.btn', { onclick: () => { localStorage.removeItem('lh.settings'); location.reload(); } }, 'Reset to defaults'),
         h('span.spacer', { style: { flex: 1 } }), h('button.btn.primary', { onclick: () => d.close() }, 'Done')),
     ),

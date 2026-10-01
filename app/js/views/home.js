@@ -2,6 +2,7 @@
 import { h, store, getSite, engineOpts, fmtTime, fmtDeg, fmtLL, isoMin, groupTag } from '../ui.js';
 import { snapshot, ephemTable, siteSeries, DAY, HOUR } from '../engine.js';
 import { panorama } from '../charts.js';
+import { installBanner } from '../install.js';
 
 const FEATURES = [
   ['#/map', 'Site map', 'South-pole terrain with yearly sunlight and Earth-visibility maps. Tap any spot to trace its horizon.', '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v18M3 12h18"/>'],
@@ -47,7 +48,9 @@ export function mount(root) {
         h('span.pill.' + (sn.earthVis ? 'earth' : 'off'), sn.earthVis ? `Earth ${fmtDeg(sn.earth.el, 1)}` : 'No Earth'))));
   }
 
+  const tip = installBanner();
   root.append(
+    tip.el,
     hero,
     h('div', { style: { height: '22px' } }),
     h('div.features', FEATURES.map(([href, t, p, ic]) => h('a.card.feature', { href }, h('div.ic', { html: `<svg viewBox="0 0 24 24">${ic}</svg>` }), h('h3', t), h('p', p)))),
@@ -58,5 +61,5 @@ export function mount(root) {
       h('p.muted', 'Terrain: NASA LRO LOLA polar DEMs (80 m and 240 m per pixel). Sun and Earth positions come from an analytic lunar ephemeris with the IAU lunar orientation model, checked against JPL DE421: mean error 0.002°, worst case 0.01°. The Sun\'s disk is 0.27° in radius, so that is far below the size of the Sun itself. Everything runs on your device and works offline after the first visit.'),
       h('a', { href: '#/learn/methods' }, 'Methods, accuracy and sources →')),
   );
-  return { unmount() { pano.destroy(); } };
+  return { unmount() { pano.destroy(); tip.destroy(); } };
 }
