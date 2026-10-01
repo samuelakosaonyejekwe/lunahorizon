@@ -299,7 +299,12 @@ export function mount(root) {
     card.style.display = 'block';
     const W = map.w, H = map.h, cw = Math.min(310, W - 20);
     card.style.left = Math.max(10, Math.min(W - cw - 10, sx - cw / 2)) + 'px';
-    card.style.top = (sy > H / 2 ? Math.max(50, sy - 250) : Math.min(H - 250, sy + 16)) + 'px';
+    // open clear of the finger, and ignore input briefly: phones fire a delayed synthetic click at the
+    // tap point, which must not land on the card's buttons (it would start an unrequested analysis)
+    const ch = card.offsetHeight || 240;
+    card.style.top = (sy > H / 2 ? Math.max(50, sy - ch - 28) : Math.min(H - ch - 10, sy + 28)) + 'px';
+    card.style.pointerEvents = 'none';
+    clearTimeout(st.cardTimer); st.cardTimer = setTimeout(() => { card.style.pointerEvents = ''; }, 400);
   }
 
   async function analyze(lat, lon) {
