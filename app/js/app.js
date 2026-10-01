@@ -90,7 +90,8 @@ function openSettings() {
         h('span.spacer', { style: { flex: 1 } }), h('button.btn.primary', { onclick: () => d.close() }, 'Done')),
     ),
   );
-  d.showModal();
+  if (typeof d.showModal === 'function') d.showModal();
+  else { d.classList.add('fallback'); d.setAttribute('open', ''); d.close = () => d.removeAttribute('open'); }
 }
 
 function applyTheme() {

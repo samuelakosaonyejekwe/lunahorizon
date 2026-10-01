@@ -4,6 +4,7 @@
 import { h, store, getSite, settings, engineOpts, fmtTime, fmtDeg, fmtPct, toInput, fromInput, query, setQuery, isoMin, parseIso, icon, ICONS, toast } from '../ui.js';
 import { ephem, SUN_R_KM, R2D } from '../astro.js';
 import { snapshot, HOUR, DAY } from '../engine.js';
+import { gunzip } from '../gz.js';
 
 const R_KM = 1737.4;
 const SPEEDS = [[1, '1 h/s'], [6, '6 h/s'], [24, '1 d/s'], [72, '3 d/s']];
@@ -155,7 +156,8 @@ function grid(gl, n) {
 }
 async function loadDem(url, n) {
   const res = await fetch(url);
-  const buf = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+  if (!res.ok) throw new Error('download failed (' + res.status + ')');
+  const buf = await gunzip(await res.arrayBuffer());
   const i16 = new Int16Array(buf), half = new Uint16Array(n * n), f = new Float32Array(n * n);
   for (let i = 0; i < i16.length; i++) { half[i] = toHalf(i16[i]); f[i] = i16[i]; }
   return { half, f, n };

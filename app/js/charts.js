@@ -218,7 +218,7 @@ export function panorama(container, getState, onHover) {
     ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.font = FONT(11, 600); ctx.fillStyle = 'rgba(210,220,240,.75)';
     const exag = pxPerDegY / pxPerDegX;
     ctx.fillText(`Vertical exaggeration ×${exag >= 10 ? Math.round(exag) : exag.toFixed(1)}${hz ? '' : ' · smooth horizon (no polar DEM)'}`, left + 4, 4);
-    if (st.trackLabel) { ctx.textAlign = 'right'; ctx.fillText(st.trackLabel, left + pw - 4, 4); }
+    if (st.trackLabel && pw > 420) { ctx.textAlign = 'right'; ctx.fillText(st.trackLabel, left + pw - 4, 4); }
   });
 
   // interaction: drag to pan, wheel/pinch to zoom, hover readout

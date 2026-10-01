@@ -110,6 +110,7 @@ svg { stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; 
   position: sticky; top: 0; z-index: 40; height: var(--top-h);
   display: flex; align-items: center; gap: 16px; padding: 0 var(--pad);
   padding-left: max(var(--pad), env(safe-area-inset-left)); padding-right: max(var(--pad), env(safe-area-inset-right));
+  background: var(--bg);   /* fallback for browsers without color-mix (iOS < 16.2, Chrome < 111) */
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   backdrop-filter: saturate(1.4) blur(12px); -webkit-backdrop-filter: saturate(1.4) blur(12px);
   border-bottom: 1px solid var(--border);
@@ -127,6 +128,7 @@ svg { stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; 
 .tabbar {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 40; display: grid; grid-template-columns: repeat(5, 1fr);
   height: calc(var(--tab-h) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
+  background: var(--surface);
   background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid var(--border);
 }
@@ -135,6 +137,7 @@ svg { stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; 
 .tabbar a svg { width: 22px; height: 22px; }
 .tabbar a.active { color: var(--accent); }
 @media (min-width: 900px) { .mainnav { display: flex; } .tabbar { display: none; } }
+@media (max-width: 339px) { .brand span { display: none; } .topbar { gap: 8px; } .iconbtn { width: 36px; } }
 
 /* ---------- layout */
 main { outline: none; }
@@ -205,7 +208,7 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; col
 .pill.sun { color: var(--sun); background: var(--sun-soft); }
 .pill.earth { color: var(--earth); background: var(--earth-soft); }
 .pill.both { color: var(--both); background: var(--both-soft); }
-.pill.relay { color: var(--relay); background: color-mix(in srgb, var(--relay) 16%, transparent); }
+.pill.relay { color: var(--relay); background: var(--surface-2); background: color-mix(in srgb, var(--relay) 16%, transparent); }
 .pill.off { color: var(--text-3); background: var(--surface-2); }
 .pill.off::before { background: transparent; border: 2px solid currentColor; width: 6px; height: 6px; }
 
@@ -308,6 +311,8 @@ td.best::after { content: " ★"; color: var(--sun); font-size: 11px; }
 
 /* dialog */
 dialog { border: 1px solid var(--border); border-radius: 18px; padding: 0; background: var(--surface); color: var(--text); width: min(640px, calc(100vw - 24px)); max-height: calc(100vh - 40px); box-shadow: 0 20px 60px rgba(0, 0, 0, .4); }
+/* browsers without <dialog>.showModal (iOS < 15.4) get a fixed panel */
+dialog.fallback[open] { position: fixed; inset: 20px 0 auto; margin: 0 auto; z-index: 90; overflow: auto; }
 dialog::backdrop { background: rgba(3, 6, 14, .55); backdrop-filter: blur(3px); }
 dialog .dlg-h { display: flex; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1; }
 dialog .dlg-h h2 { margin: 0; flex: 1; }
@@ -343,6 +348,6 @@ dl.gloss dd { margin: 2px 0 0; color: var(--text-2); }
 @media (min-width: 700px) { .hide-sm { display: initial; } .kpis.k3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .empty { text-align: center; color: var(--text-3); padding: 30px 10px; }
-.warnbox { border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); padding: 10px 12px; border-radius: 10px; font-size: 13px; color: var(--text-2); }
+.warnbox { border: 1px solid var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent); background: var(--surface-2); background: color-mix(in srgb, var(--warn) 10%, transparent); padding: 10px 12px; border-radius: 10px; font-size: 13px; color: var(--text-2); }
 .ok { color: var(--good); font-weight: 700; }
 .no { color: var(--bad); font-weight: 700; }

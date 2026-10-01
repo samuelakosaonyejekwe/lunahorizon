@@ -151,23 +151,43 @@ export function groupTag(s) {
 }
 
 // ------------------------------------------------------------------ worker RPC
-let worker, seq = 0;
+// Heavy jobs run in a module Web Worker. Browsers that cannot start one (older Firefox for Android, iOS < 15)
+// fall back to running the same code (jobs.js) on the page, one job at a time: slower, but it works.
+let worker = null, workerOk = null, seq = 0, inlineQueue = Promise.resolve();
 const pending = new Map();
-export function compute(msg, onProgress) {
-  if (!worker) {
-    worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-    worker.onmessage = (e) => {
-      const m = e.data, p = pending.get(m.id);
-      if (!p) return;
+function runInline(id) {
+  const p = pending.get(id);
+  inlineQueue = inlineQueue.then(async () => {
+    const { runJob } = await import('./jobs.js');
+    await runJob(p.msg, (m) => {
       if (m.type === 'progress') p.onProgress && p.onProgress(m.msg);
-      else { pending.delete(m.id); m.type === 'error' ? p.reject(new Error(m.msg)) : p.resolve(m); }
-    };
-    worker.onerror = (e) => { pending.forEach((p) => p.reject(new Error(e.message || 'Worker failed'))); pending.clear(); };
-  }
+      else { pending.delete(id); m.type === 'error' ? p.reject(new Error(m.msg)) : p.resolve(m); }
+    });
+  }).catch((e) => { pending.delete(id); p.reject(e); });
+}
+function startWorker() {
+  try { worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); } catch { workerOk = false; return; }
+  worker.onmessage = (e) => {
+    workerOk = true;
+    const m = e.data, p = pending.get(m.id);
+    if (!p) return;
+    if (m.type === 'progress') p.onProgress && p.onProgress(m.msg);
+    else { pending.delete(m.id); m.type === 'error' ? p.reject(new Error(m.msg)) : p.resolve(m); }
+  };
+  worker.onerror = (e) => {
+    if (workerOk) { pending.forEach((p) => p.reject(new Error(e.message || 'Worker failed'))); pending.clear(); return; }
+    // the worker never started (module workers unsupported): rerun everything on the page
+    workerOk = false; worker.terminate(); worker = null;
+    for (const id of pending.keys()) runInline(id);
+  };
+}
+export function compute(msg, onProgress) {
+  if (worker === null && workerOk !== false) startWorker();
   const id = ++seq;
   return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject, onProgress });
-    worker.postMessage({ ...msg, id });
+    pending.set(id, { resolve, reject, onProgress, msg: { ...msg, id } });
+    if (workerOk === false) runInline(id);
+    else worker.postMessage({ ...msg, id });
   });
 }
 /** Serializable site record for the worker */
