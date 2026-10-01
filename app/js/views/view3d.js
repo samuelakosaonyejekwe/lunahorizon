@@ -184,13 +184,13 @@ export function mount(root) {
   const box = h('div', { style: { position: 'relative', height: 'clamp(420px, calc(100vh - 230px), 900px)', borderRadius: '14px', overflow: 'hidden', background: '#000', touchAction: 'none' } });
   const cv = h('canvas', { style: { width: '100%', height: '100%', display: 'block', cursor: 'grab' }, 'aria-label': '3D view of the lunar south pole with live sunlight and shadows', role: 'img' });
   const labels = h('div', { style: { position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' } });
-  const hud = h('div', { style: { position: 'absolute', left: '10px', top: '10px', right: '10px', display: 'flex', flexWrap: 'wrap', gap: '8px', pointerEvents: 'none' } });
+  const hud = h('div.hud3d', { style: { position: 'absolute', left: '10px', top: '10px', right: '10px', display: 'flex', flexWrap: 'wrap', gap: '8px', pointerEvents: 'none' } });
   const info = h('div', { style: { position: 'absolute', left: '10px', bottom: '10px', background: 'rgba(6,9,20,.85)', color: '#dfe5f3', borderRadius: '10px', padding: '8px 12px', fontSize: '13px', maxWidth: 'calc(100% - 20px)', pointerEvents: 'none' } });
   const busy = h('div.busy', { style: { position: 'absolute', inset: 0, justifyContent: 'center', color: '#dfe5f3' } }, h('div.spinner'), h('span', 'Loading LOLA terrain…'));
   box.append(cv, labels, hud, info, busy);
 
   const modeSeg = h('div.seg.dark', { style: { pointerEvents: 'auto' } },
-    [['Live sunlight', 0], ['Yearly sunlight %', 1], ['Yearly Earth view %', 2]].map(([l, m]) => h('button', { class: st.mode === m ? 'on' : '', onclick: (e) => { st.mode = m; [...modeSeg.children].forEach((b) => b.classList.toggle('on', b === e.target)); save(); draw(); } }, l)));
+    [['Live sun', 0], ['Yearly sun %', 1], ['Yearly Earth %', 2]].map(([l, m]) => h('button', { class: st.mode === m ? 'on' : '', onclick: (e) => { st.mode = m; [...modeSeg.children].forEach((b) => b.classList.toggle('on', b === e.target)); save(); draw(); } }, l)));
   const siteSel = h('select', { style: { width: 'auto', pointerEvents: 'auto' }, 'aria-label': 'Focus on site', onchange: () => { st.focus = siteSel.value; focusSite(true); save(); } },
     h('option', { value: 'pole' }, 'South Pole'), store.sites.filter((s) => s.lat <= -84).map((s) => h('option', { value: s.id, selected: s.id === st.focus }, s.name)));
   const exSel = h('select', { style: { width: 'auto', pointerEvents: 'auto' }, 'aria-label': 'Vertical exaggeration', onchange: () => { st.exag = +exSel.value; save(); draw(); } },

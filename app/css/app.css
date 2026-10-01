@@ -296,6 +296,13 @@ td.best::after { content: " ★"; color: var(--sun); font-size: 11px; }
 .maptools .seg button, .seg.dark button { color: #b3bdd3; }
 .maptools .seg button.on, .seg.dark button.on { background: #5b8cff; color: #061022; }
 
+/* 3D controls: compact on phones so the terrain stays visible */
+@media (max-width: 600px) {
+  .hud3d { gap: 6px !important; }
+  .hud3d .seg { padding: 2px; }
+  .hud3d .seg button { font-size: 12px; padding: 3px 7px; min-height: 26px; }
+  .hud3d select { font-size: 13px; min-height: 30px; padding: 2px 6px; max-width: 46vw; }
+}
 /* 3D labels */
 .g3 { transform: translate(-50%, -50%); color: #eef2fb; font: 600 12px/1.2 system-ui, sans-serif; white-space: nowrap; text-shadow: 0 0 3px #000, 0 0 6px #000; display: flex; align-items: center; gap: 5px; }
 .g3-site { transform: translate(-6px, -50%); opacity: .9; }
