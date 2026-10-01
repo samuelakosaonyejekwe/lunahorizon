@@ -84,7 +84,7 @@ python3 tools/validate.py <kernel-dir>
 ```
 
 The site list (with the chosen representative points) is `tools/sites.py`. After changing anything in `app/data/`,
-bump `VERSION` in `app/sw.js` so installed copies refresh their offline cache.
+bump `DATA` in `app/sw.js` so installed copies replace their offline data (app code refreshes on its own; terrain users downloaded survives code updates).
 
 ## Project layout
 

@@ -325,7 +325,12 @@ export function mount(root) {
       toast('Terrain horizon computed. Site saved on this device.');
       location.hash = `#/site/${id}`;
     } catch (err) {
-      card.replaceChildren(h('div.card', h('p', 'Could not compute the horizon: ' + err.message)));
+      // offline (airplane mode, no signal): only terrain downloaded on an earlier visit is available
+      const net = !navigator.onLine || /fetch|load failed|network|: 503/i.test(err.message);
+      card.replaceChildren(h('div.card', net
+        ? [h('p', h('b', 'No connection.'), ' The terrain around this spot has not been downloaded to this device yet.'),
+          h('p.muted', { style: { margin: 0 } }, 'Connect once and analyze it; after that it works offline. Built-in sites and spots you analyzed before work without a connection.')]
+        : h('p', 'Could not compute the horizon: ' + err.message)));
     }
   }
 

@@ -206,8 +206,14 @@ export function query() {
   const q = location.hash.split('?')[1] || '';
   return Object.fromEntries(new URLSearchParams(q));
 }
+// The page that may write the URL. The router clears it the moment navigation starts, so a page's delayed
+// state save (a debounce timer) can never land on the URL of the page the user is moving to.
+let urlOwner = null;
+export function setUrlOwner(name) { urlOwner = name; }
+const routeName = () => location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[0];
 /** Replace the query part of the hash without triggering navigation */
 export function setQuery(obj) {
+  if (urlOwner === null || routeName() !== urlOwner) return;
   const base = location.hash.split('?')[0] || '#/';
   const q = new URLSearchParams();
   for (const k in obj) if (obj[k] != null && obj[k] !== '') q.set(k, obj[k]);

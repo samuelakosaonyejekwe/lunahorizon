@@ -38,7 +38,6 @@ async function ensureTerrain(base, meta, lat, lon, send, nearKm = NEAR_KM) {
     const dx = Math.max(x0 - px, 0, px - x1), dy = Math.max(y0 - py, 0, py - y1);
     if (Math.hypot(dx, dy) <= nearKm * 1000) want.push([r, c]);
   }
-  // progress by compressed bytes (sizes come from meta.json), so one large file does not stall the percentage
   const missing = want.filter(([r, c]) => !tileLoads.has(r * 1000 + c));
   if (!missing.length && farLoad) { await Promise.all([farLoad, ...want.map(([r, c]) => tileLoads.get(r * 1000 + c))]); return; }
   // progress by compressed bytes (sizes come from meta.json), so one large file does not stall the percentage
@@ -62,6 +61,7 @@ async function ensureTerrain(base, meta, lat, lon, send, nearKm = NEAR_KM) {
   if (!farLoad) {
     farLoad = limit(async () => { const a = new Int16Array(await fetchGz(base + 'data/dem_far.bin.gz', onBytes)); farG = { a, ...meta.dem_far }; })
       .catch((e) => { farLoad = null; throw e; });
+    farLoad.catch(() => {});        // the await below reports the failure; this stops a second "unhandled rejection"
   }
   for (const [r, c] of missing) {
     const key = r * 1000 + c;
@@ -73,6 +73,7 @@ async function ensureTerrain(base, meta, lat, lon, send, nearKm = NEAR_KM) {
         nearG.a.set(buf.subarray(i * T, i * T + w), row);
       }
     }).catch((e) => { tileLoads.delete(key); throw e; }));
+    tileLoads.get(key).catch(() => {});   // only the first failure is reported (by the await below), not one per tile
   }
   await Promise.all([farLoad, ...want.map(([r, c]) => tileLoads.get(r * 1000 + c))]);
 }

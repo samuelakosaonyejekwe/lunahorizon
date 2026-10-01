@@ -1,5 +1,5 @@
 // App shell: router, settings dialog, theme, share, service worker.
-import { $, $$, h, settings, updateSettings, loadSites, toast } from './ui.js';
+import { $, $$, h, settings, updateSettings, loadSites, toast, setUrlOwner } from './ui.js';
 import { RELAYS } from './astro.js';
 import { installSection } from './install.js';   // also captures the browser's install prompt early
 
@@ -31,6 +31,7 @@ async function route() {
   if (key === currentKey && current) { current.update?.(params); return; }
   const loader = ROUTES[name] || ROUTES[''];
   const my = ++navSeq;
+  setUrlOwner(null);              // the old page may no longer touch the URL
   $$('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === name));
   let mod;
   try { mod = await loader(); } catch (e) { main.replaceChildren(h('div.page', h('div.card', 'Could not load this page. Check your connection and reload.'))); return; }
@@ -40,6 +41,7 @@ async function route() {
   main.replaceChildren(page);
   document.title = `${TITLES[name] || 'Home'} · LunaHorizon`;
   currentKey = key;
+  setUrlOwner(ROUTES[name] ? name : '');
   current = mod.mount(page, params) || {};
   if (!location.hash.includes('?')) window.scrollTo(0, 0);
 }
