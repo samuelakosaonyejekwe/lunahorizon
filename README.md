@@ -10,6 +10,9 @@ It shows where the **Sun and Earth sit relative to the real terrain horizon**, s
 It runs on any phone, tablet or computer and installs there as an app (the Install button in the top bar gives the right steps for each browser). It works offline after the first visit.
 There is no build step and no framework: plain ES modules and canvas.
 
+**Demo video and slides:** [30-second demo video](submission/LunaHorizon_Demo_30s.mp4) ·
+[slides (PDF)](submission/LunaHorizon_Slides.pdf) · [slides (PowerPoint)](submission/LunaHorizon_Slides.pptx)
+
 ## What it does
 
 | Page | Answers |
