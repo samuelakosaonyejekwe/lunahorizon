@@ -7,7 +7,7 @@ LunaHorizon lets mission planners, educators and the public **compare landing si
 It shows where the **Sun and Earth sit relative to the real terrain horizon**, so you can judge **solar power** and
 **direct-to-Earth (DTE) communication windows** at a glance.
 
-It runs on phones, tablets and desktops, installs as an app (PWA), and works offline after the first visit.
+It runs on any phone, tablet or computer and installs there as an app (the Install button in the top bar gives the right steps for each browser). It works offline after the first visit.
 There is no build step and no framework: plain ES modules and canvas.
 
 ## What it does

@@ -3,11 +3,11 @@
 // Two caches, so an app update never throws away terrain a user downloaded for offline use:
 //   VERSION: the app shell, replaced on every release.
 //   DATA:    data/ files (tiles, maps, terrain). Bump it ONLY when anything under data/ changes, since data is served cache-first.
-const VERSION = 'lh-v7';
+const VERSION = 'lh-v8';
 const DATA = 'lh-data-6';
 const SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/ui.js', 'js/astro.js', 'js/engine.js', 'js/charts.js', 'js/worker.js', 'js/jobs.js', 'js/gz.js', 'js/install.js',
   'js/views/home.js', 'js/views/map.js', 'js/views/site.js', 'js/views/compare.js', 'js/views/planner.js', 'js/views/learn.js', 'js/views/view3d.js',
-  'data/sites.json', 'data/horizons10.json', 'data/meta.json', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
+  'data/sites.json', 'data/horizons10.json', 'data/meta.json', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 const LAZY = ['data/basemap.jpg', 'data/basemap_zoom.jpg', 'data/overlay.png'];
 // Browsers without a built-in gzip decoder (Safari before 16.4, Chrome before 80) need the bundled one to read terrain offline
 const FALLBACK = typeof DecompressionStream === 'undefined' ? ['vendor/fflate.js'] : [];

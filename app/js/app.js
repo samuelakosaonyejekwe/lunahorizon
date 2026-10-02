@@ -1,7 +1,7 @@
 // App shell: router, settings dialog, theme, share, service worker.
 import { $, $$, h, settings, updateSettings, loadSites, toast, setUrlOwner } from './ui.js';
 import { RELAYS } from './astro.js';
-import { installSection } from './install.js';   // also captures the browser's install prompt early
+import { installSection, wireInstallButton } from './install.js';   // also captures the browser's install prompt early
 
 const ROUTES = {
   '': () => import('./views/home.js'),
@@ -106,6 +106,7 @@ function applyTheme() {
 }
 
 $('#btn-settings').addEventListener('click', openSettings);
+wireInstallButton($('#btn-install'));
 $('#settings').addEventListener('click', (e) => { if (e.target.id === 'settings') e.target.close(); });
 $('#btn-theme').addEventListener('click', () => {
   const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
