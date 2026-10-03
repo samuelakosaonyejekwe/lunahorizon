@@ -129,6 +129,15 @@ $('#btn-share').addEventListener('click', async () => {
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => window.dispatchEvent(new Event('themechange')));
 
+// Segmented controls mark the chosen button with the "on" class; mirror it to aria-pressed so screen readers announce it
+const syncPressed = (b) => b.setAttribute('aria-pressed', String(b.classList.contains('on')));
+new MutationObserver((records) => {
+  for (const r of records) {
+    if (r.type === 'attributes') { if (r.target.matches?.('.seg > button')) syncPressed(r.target); continue; }
+    for (const n of r.addedNodes) if (n.nodeType === 1) [...(n.matches('.seg > button') ? [n] : []), ...n.querySelectorAll('.seg > button')].forEach(syncPressed);
+  }
+}).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+
 // ------------------------------------------------------------------ boot
 window.addEventListener('hashchange', route);
 loadSites().then(route).catch((e) => {

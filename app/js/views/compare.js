@@ -1,6 +1,6 @@
 // Compare Sites: ranked metrics, synchronized swimlanes, daily calendar heatmap.
 import { h, store, getSite, settings, onSettings, engineOpts, compute, siteMsg, fmtPct, fmtDur, fmtTime, toDateInput, fromDateInput,
-  query, setQuery, isoMin, parseIso, download, icon, ICONS, groupTag, startOfDayUTC, toast, escHtml, csvCell } from '../ui.js';
+  query, queryWriter, isoMin, parseIso, download, icon, ICONS, groupTag, startOfDayUTC, toast, escHtml, csvCell } from '../ui.js';
 import { swimlanes, heatmap, colors, rampColor, isDark } from '../charts.js';
 import { HOUR, DAY } from '../engine.js';
 
@@ -25,6 +25,7 @@ const COLS = [
 ];
 
 export function mount(root) {
+  const setQuery = queryWriter();   // URL writes stop the moment this page is left
   const q = query();
   const st = {
     sites: (q.sites ? q.sites.split(',') : DEFAULT_SITES).filter(getSite),

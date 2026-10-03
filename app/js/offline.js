@@ -44,7 +44,9 @@ export async function saveAll() {
   if (!supported() || state.busy) return;
   state.busy = true; state.done = 0; state.failed = 0; notify();
   try {
-    try { state.persisted = !!(await navigator.storage?.persist?.()); } catch (e) { /* not supported */ }
+    // ask for protection from automatic clean-up, but never wait for it: Firefox shows the user a permission prompt and
+    // its promise stays pending until they answer, which would stall the download
+    try { navigator.storage?.persist?.().then((ok) => { state.persisted = !!ok; notify(); }, () => {}); } catch (e) { /* not supported */ }
     const reg = await navigator.serviceWorker.ready;
     const sw = navigator.serviceWorker.controller || reg.active;
     const m = await manifest(); const urls = m.urls;

@@ -1,5 +1,5 @@
 // Polar Site Map: LOLA hillshade, yearly sunlight / Earth-visibility overlays, site markers, click-to-analyze any spot.
-import { h, store, settings, compute, addCustomSite, fmtLL, fmtPct, toast, icon, ICONS, groupTag, query, setQuery, DEM_LIMIT_LAT } from '../ui.js';
+import { h, store, settings, compute, addCustomSite, fmtLL, fmtPct, toast, icon, ICONS, groupTag, query, queryWriter, DEM_LIMIT_LAT } from '../ui.js';
 import { makeCanvas } from '../charts.js';
 import { MOON_R_KM } from '../astro.js';
 
@@ -34,6 +34,7 @@ function loadImg(src) {
 }
 
 export function mount(root) {
+  const setQuery = queryWriter();   // URL writes stop the moment this page is left
   const meta = store.meta || {};
   const q = query();
   const yrs = meta.overlay_years;

@@ -1,7 +1,7 @@
 // Landing Window Finder: sweeps every candidate landing time over a search range and evaluates the full surface stay.
 import { RELAYS } from '../astro.js';
 import { h, store, getSite, settings, onSettings, engineOpts, compute, siteMsg, fmtPct, fmtDur, fmtTime, toDateInput, fromDateInput,
-  query, setQuery, isoMin, parseIso, download, icon, ICONS, groupTag, startOfDayUTC, toast, escHtml, csvCell } from '../ui.js';
+  query, queryWriter, isoMin, parseIso, download, icon, ICONS, groupTag, startOfDayUTC, toast, escHtml, csvCell } from '../ui.js';
 import { heatmap } from '../charts.js';
 import { HOUR, DAY } from '../engine.js';
 
@@ -28,6 +28,7 @@ function parseC(v) {
 }
 
 export function mount(root) {
+  const setQuery = queryWriter();   // URL writes stop the moment this page is left
   const q = query();
   const prof = PROFILES[q.profile] ? q.profile : 'artemis';
   const linked = parseC(q.c);

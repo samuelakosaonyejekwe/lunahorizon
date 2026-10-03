@@ -235,14 +235,16 @@ export function query() {
   const q = location.hash.split('?')[1] || '';
   return Object.fromEntries(new URLSearchParams(q));
 }
-// The page that may write the URL. The router clears it the moment navigation starts, so a page's delayed
-// state save (a debounce timer) can never land on the URL of the page the user is moving to.
+// The page mount that may write the URL. The router clears it the moment navigation starts and gives every mount its own
+// token, so a page's delayed state save (a debounce timer) can never land on the URL of another page or a later mount.
 let urlOwner = null;
-export function setUrlOwner(name) { urlOwner = name; }
+export function setUrlOwner(name) { urlOwner = name == null ? null : { name }; }
 const routeName = () => location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[0];
+/** For a page's mount(): a setQuery bound to this mount, which stops writing as soon as the page is left */
+export function queryWriter() { const me = urlOwner; return (obj) => writeQuery(me, obj); }
 /** Replace the query part of the hash without triggering navigation */
-export function setQuery(obj) {
-  if (urlOwner === null || routeName() !== urlOwner) return;
+function writeQuery(me, obj) {
+  if (me === null || me !== urlOwner || routeName() !== me.name) return;
   const base = location.hash.split('?')[0] || '#/';
   const q = new URLSearchParams();
   for (const k in obj) if (obj[k] != null && obj[k] !== '') q.set(k, obj[k]);

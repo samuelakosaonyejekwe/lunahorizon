@@ -26,7 +26,7 @@ There is no build step and no framework: plain ES modules and canvas.
 
 **Relay satellites.** Settings adds an optional relay orbiter: a Lunar Pathfinder-class frozen elliptical orbit (12 h) or an approximation of Gateway's NRHO (6.6 d). Communications then count when Earth or the relay is above the skyline and the relay can see Earth, so far-side and Earth-hidden sites show relay coverage everywhere: Explorer, Compare and Window Finder.
 
-**The 18.6-year cycle.** The maps cover every year from 2026 to 2044 (one full lunar nodal cycle), with a year picker, a cycle average and a year-to-year variability layer; Compare adds a 19-year table per site. Finding: sunlight at a spot typically swings only about 3 percentage points between years; the season within a year matters far more.
+**The 18.6-year cycle.** The maps cover every year from 2026 to 2044 (one full lunar nodal cycle), with a year picker, a cycle average and a year-to-year variability layer; Compare adds a 19-year heatmap of every chosen site. Finding: sunlight at a spot typically swings only about 3 percentage points between years; the season within a year matters far more.
 
 **High-resolution horizons.** Site horizons layer LOLA 5 m data (within 4 km, sites south of 87.5°S) and 20 m data (within 15 km) over the 80 m and 240 m grids, fetched as small windows with HTTP range requests.
 
@@ -70,7 +70,8 @@ files stay on your device. See [SECURITY.md](SECURITY.md) for the protections in
 * **Terrain:** the app's data is built from NASA's LOLA files at the PDS Geosciences Node; `tools/nasa_sources.json`
   records the versions it was built from, and Learn → Methods shows their dates.
 * **Following NASA's updates:** every 6 hours the deploy workflow (`.github/workflows/pages.yml`) runs on GitHub's servers
-  and asks NASA's server whether any of those files has changed (`python3 tools/nasa_sources.py --check`). When one has,
+  and asks NASA's server whether any of those files is newer than the versions the live app was built from
+  (`python3 tools/nasa_sources.py --check --live <site>`). When one is,
   it downloads NASA's current files, rebuilds every map, horizon and terrain tile, re-picks the region points, runs the
   tests and republishes the app; installed copies then replace their saved data. It needs no computer of yours and
   commits nothing. *Actions → Deploy to GitHub Pages → Run workflow* with "rebuild" ticked forces a full rebuild.
@@ -82,14 +83,15 @@ files stay on your device. See [SECURITY.md](SECURITY.md) for the protections in
 
 ```bash
 npm start            # serves app/ at http://localhost:8080  (or: python3 -m http.server -d app 8080)
-npm test             # engine tests (ephemeris accuracy, visibility logic, performance)
+npm test             # ephemeris accuracy vs JPL DE421 and DE440, visibility, relays, windows, performance,
+                     # offline file list and cache names, security policy
 ```
 
 Any static host works (GitHub Pages, Netlify, S3). Serve the `app/` folder.
 
 ## Rebuild the data (optional)
 
-Everything in `app/data/` is generated from public NASA data. Python 3.10+ with `pip install -r tools/requirements.txt`, and Node 20+.
+Everything in `app/data/` is generated from public NASA data. Python 3.10+ with `pip install -r tools/requirements.txt` (in a virtual environment), and Node 20+.
 
 ```bash
 # 1. LOLA polar DEMs (PDS Geosciences Node), about 145 MB
@@ -117,8 +119,8 @@ offline" list (`app/data/offline.json`) and bumps the service worker's cache nam
 cache when code changes, the data cache only when data changes, so installed copies update while terrain users
 downloaded survives code updates. `npm test` fails if this step was skipped.
 
-A rebuild from the same inputs reproduces `app/data/` byte for byte, except the two JPEG basemaps, whose pixels can
-differ by a few levels between Pillow/libjpeg versions.
+With the versions pinned in `tools/requirements.txt`, a rebuild from the same NASA files reproduces `app/data/` byte for
+byte (other Pillow versions encode the two JPEG basemaps slightly differently).
 
 ## Project layout
 
@@ -138,7 +140,9 @@ app/                 static web app (deploy this)
   data/              sites + horizons, basemaps, overlay maps, compressed DEMs, offline.json file list
   vendor/fflate.js   fallback gzip decoder (MIT, see fflate.LICENSE)
   sw.js              offline cache
-tools/               data pipeline, validation and tests
+tools/               data pipeline, NASA source check, validation and tests
+.github/workflows/    pages.yml: tests, the 6-hourly NASA data check and rebuild, deploy to GitHub Pages
+LICENSE, SECURITY.md MIT license; security notes and how to report a problem
 ```
 
 ## Data sources

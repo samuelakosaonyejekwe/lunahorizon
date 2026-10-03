@@ -1,7 +1,7 @@
 // 3D South Pole: LOLA terrain in WebGL2 with live, physically placed sunlight and ray-marched shadows.
 // Shadows use true (unexaggerated) heights over a ±200 km tile, including the Moon's curvature, and a soft
 // edge from the Sun's real angular radius, so a partly hidden Sun gives partial light.
-import { h, store, getSite, engineOpts, fmtTime, fmtDeg, fmtPct, toInput, fromInput, query, setQuery, isoMin, parseIso, icon, ICONS, escHtml } from '../ui.js';
+import { h, store, getSite, engineOpts, fmtTime, fmtDeg, fmtPct, toInput, fromInput, query, queryWriter, isoMin, parseIso, icon, ICONS, escHtml } from '../ui.js';
 import { ephem, SUN_R_KM, MOON_R_KM, R2D } from '../astro.js';
 import { snapshot, HOUR, DAY } from '../engine.js';
 import { gunzip } from '../gz.js';
@@ -172,6 +172,7 @@ function heightTex(gl, d) {
 }
 
 export function mount(root) {
+  const setQuery = queryWriter();   // URL writes stop the moment this page is left
   const meta = store.meta || {};
   const q = query();
   const st = {
@@ -200,7 +201,7 @@ export function mount(root) {
   const dtIn = h('input', { type: 'datetime-local', step: 600, 'aria-label': 'Date and time', onchange: () => { const v = fromInput(dtIn.value); if (isFinite(v)) { st.t = v; update(); } } });
   const whenEl = h('div.when');
   const playBtn = h('button.btn.primary.small', { onclick: togglePlay, 'aria-label': 'Play/pause' }, icon(ICONS.play));
-  const speedSel = h('select', { style: { width: 'auto' }, onchange: (e) => { st.speed = +e.target.value; } }, SPEEDS.map(([v, l]) => h('option', { value: v, selected: v === st.speed }, l)));
+  const speedSel = h('select', { style: { width: 'auto' }, 'aria-label': 'Playback speed', onchange: (e) => { st.speed = +e.target.value; } }, SPEEDS.map(([v, l]) => h('option', { value: v, selected: v === st.speed }, l)));
   const stepB = (ms, ic, l) => h('button.btn.small', { onclick: () => { st.t += ms; update(); }, 'aria-label': l, title: l }, icon(ic));
   const timebar = h('div.timebar', { style: { borderRadius: '0 0 14px 14px' } },
     h('div.grp', stepB(-DAY, ICONS.back2, 'Back 1 day'), stepB(-HOUR, ICONS.back, 'Back 1 hour'), playBtn, stepB(HOUR, ICONS.fwd, 'Forward 1 hour'), stepB(DAY, ICONS.fwd2, 'Forward 1 day')),
@@ -414,7 +415,7 @@ export function mount(root) {
 
   return {
     unmount() {
-      cancelAnimationFrame(praf); cancelAnimationFrame(raf); ro.disconnect(); document.removeEventListener('keydown', onKey); delete window.__view3d;
+      cancelAnimationFrame(praf); cancelAnimationFrame(raf); clearTimeout(saveT); ro.disconnect(); document.removeEventListener('keydown', onKey); delete window.__view3d;
       gl.getExtension('WEBGL_lose_context')?.loseContext();
     },
   };

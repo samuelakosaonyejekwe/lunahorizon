@@ -56,7 +56,7 @@ export function mount(root) {
     installBannerHidden() ? off.el : null,
     hero,
     h('div', { style: { height: '22px' } }),
-    h('div.features', FEATURES.map(([href, t, p, ic]) => h('a.card.feature', { href }, h('div.ic', { html: `<svg viewBox="0 0 24 24">${ic}</svg>` }), h('h3', t), h('p', p)))),
+    h('div.features', FEATURES.map(([href, t, p, ic]) => h('a.card.feature', { href }, h('div.ic', { html: `<svg viewBox="0 0 24 24">${ic}</svg>` }), h('h2', t), h('p', p)))),
     h('div', { style: { height: '22px' } }),
     h('div.card', h('header', h('h2', 'Right now at every site'), h('div.spacer'), h('span.muted', { style: { fontSize: '12px' } }, fmtTime(now))), live),
     h('div', { style: { height: '22px' } }),

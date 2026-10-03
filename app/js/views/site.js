@@ -1,6 +1,6 @@
 // Site Explorer: horizon panorama + sky plot, time machine, timeline, live status, power & comms.
 import { h, $, store, getSite, settings, onSettings, engineOpts, fmtTime, fmtDeg, fmtPct, fmtDur, fmtLL, compass, toInput, fromInput,
-  query, setQuery, isoMin, parseIso, download, icon, ICONS, groupTag, toast, removeCustomSite } from '../ui.js';
+  query, queryWriter, isoMin, parseIso, download, icon, ICONS, groupTag, toast, removeCustomSite } from '../ui.js';
 import { ephemTable, siteSeries, summarize, snapshot, HOUR, DAY } from '../engine.js';
 import { RELAYS } from '../astro.js';
 import { panorama, skyplot, timeline } from '../charts.js';
@@ -18,6 +18,7 @@ function getTable(t0, step, n) {
 }
 
 export function mount(root, params) {
+  const setQuery = queryWriter();   // URL writes stop the moment this page is left
   const q = query();
   let lastSiteId = null;
   try { lastSiteId = localStorage.getItem('lh.lastSite'); } catch { /* storage blocked */ }
@@ -43,6 +44,7 @@ export function mount(root, params) {
     groups[g].map((s) => h('option', { value: s.id, selected: s.id === site.id }, s.name))));
 
   const head = h('div.pagehead',
+    h('h1.sr', `${site.name}: horizon explorer`),
     h('div', { style: { minWidth: 0, flex: '1 1 320px' } },
       h('div.row', siteSel, groupTag(site)),
       h('p', fmtLL(site.lat, site.lon), site.elev_m != null ? ` · ${site.elev_m.toFixed(0)} m elevation` : '', ` · terrain: ${site.terrain}`)),
@@ -53,9 +55,9 @@ export function mount(root, params) {
       h('button.btn.small', { onclick: exportCsv, title: 'Download the time series as CSV' }, icon(ICONS.dl), 'CSV'),
       h('button.btn.small', { onclick: exportPng, title: 'Save the horizon view as an image' }, icon(ICONS.img), 'PNG')));
 
-  const viewSeg = h('div.seg', { role: 'tablist' },
-    h('button', { class: st.view === 'pano' ? 'on' : '', onclick: () => setView('pano') }, 'Horizon panorama'),
-    h('button', { class: st.view === 'sky' ? 'on' : '', onclick: () => setView('sky') }, 'Sky dome'));
+  const viewSeg = h('div.seg', { role: 'group', 'aria-label': 'View' },
+    h('button', { class: st.view === 'pano' ? 'on' : '', 'aria-pressed': String(st.view === 'pano'), onclick: () => setView('pano') }, 'Horizon panorama'),
+    h('button', { class: st.view === 'sky' ? 'on' : '', 'aria-pressed': String(st.view === 'sky'), onclick: () => setView('sky') }, 'Sky dome'));
   const panoBox = h('div.chart.pano', { 'aria-label': 'Horizon panorama showing terrain, Sun and Earth', role: 'img' });
   const skyBox = h('div.chart.pano', { style: { display: 'none' }, role: 'img', 'aria-label': 'Sky dome plot' });
 
@@ -194,7 +196,7 @@ export function mount(root, params) {
 
   function setView(v) {
     st.view = v;
-    [...viewSeg.children].forEach((b, i) => b.classList.toggle('on', (i === 0) === (v === 'pano')));
+    [...viewSeg.children].forEach((b, i) => { const on = (i === 0) === (v === 'pano'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
     panoBox.style.display = v === 'pano' ? '' : 'none';
     skyBox.style.display = v === 'sky' ? '' : 'none';
     (v === 'pano' ? pano : sky).redraw();

@@ -21,10 +21,6 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -35,8 +31,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false   # this workflow never pushes: keep no token on disk
+      # a scheduled check compares with what the live app was built from (so one NASA update means one rebuild);
+      # a push or manual run compares with the repository's own record (so stale repository data is rebuilt first)
       - id: nasa
-        run: python3 tools/nasa_sources.py --check
+        run: |
+          if [ "${{ github.event_name }}" = schedule ]; then
+            python3 tools/nasa_sources.py --check --live "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+          else
+            python3 tools/nasa_sources.py --check
+          fi
 
   build:
     needs: check
@@ -45,6 +48,11 @@ jobs:
     if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.check.outputs.changed == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    # only runs that build join the queue, and they wait rather than cancel each other, so a scheduled check can never
+    # cancel a push deploy (checks that find nothing new never enter it)
+    concurrency:
+      group: pages-build
+      cancel-in-progress: false
     steps:
       - run: git config --global init.defaultBranch main
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,7 +64,9 @@ jobs:
       - name: Rebuild all data from NASA's current files
         if: needs.check.outputs.changed == 'true' || github.event.inputs.rebuild == 'true'
         run: |
-          pip install --quiet numpy pillow
+          # Ubuntu 24.04 runners refuse system-wide pip installs (PEP 668): build in a virtual environment
+          python3 -m venv /tmp/venv && . /tmp/venv/bin/activate
+          pip install --quiet -r tools/requirements.txt
           mkdir -p raw
           B=https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/polar/img
           curl -fsS --retry 5 -o raw/ldem_80s_80m.img $B/ldem_80s_80m.img
@@ -82,6 +92,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
