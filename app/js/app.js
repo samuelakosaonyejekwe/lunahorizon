@@ -2,6 +2,7 @@
 import { $, $$, h, settings, updateSettings, loadSites, toast, setUrlOwner } from './ui.js';
 import { RELAYS } from './astro.js';
 import { installSection, wireInstallButton } from './install.js';   // also captures the browser's install prompt early
+import { offlinePanel, wireNetworkIndicator } from './offline.js';
 
 const ROUTES = {
   '': () => import('./views/home.js'),
@@ -90,6 +91,7 @@ function openSettings() {
           num('Platform load', 'loadW', 10, 2000, 10, ' W'),
           num('Battery (usable)', 'batteryWh', 0, 20000, 100, ' Wh'))),
       h('fieldset', h('legend', 'Install as an app'), installSection()),
+      h('fieldset', h('legend', 'Offline & airplane mode'), offlinePanel()),
       h('div.row', h('button.btn', { onclick: () => { localStorage.removeItem('lh.settings'); location.reload(); } }, 'Reset to defaults'),
         h('span.spacer', { style: { flex: 1 } }), h('button.btn.primary', { onclick: () => d.close() }, 'Done')),
     ),
@@ -107,6 +109,7 @@ function applyTheme() {
 
 $('#btn-settings').addEventListener('click', openSettings);
 wireInstallButton($('#btn-install'));
+wireNetworkIndicator($('#net-offline'));
 $('#settings').addEventListener('click', (e) => { if (e.target.id === 'settings') e.target.close(); });
 $('#btn-theme').addEventListener('click', () => {
   const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;

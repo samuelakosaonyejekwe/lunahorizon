@@ -7,7 +7,7 @@ LunaHorizon lets mission planners, educators and the public **compare landing si
 It shows where the **Sun and Earth sit relative to the real terrain horizon**, so you can judge **solar power** and
 **direct-to-Earth (DTE) communication windows** at a glance.
 
-It runs on any phone, tablet or computer and installs there as an app (the Install button in the top bar gives the right steps for each browser). It works offline after the first visit.
+It runs on any phone, tablet or computer and installs there as an app (the Install button in the top bar gives the right steps for each browser). It works offline after the first visit, and **Save everything for offline** (in the Install guide, Settings and on Home) stores the whole app (about 12 MB) so every page, map year and terrain spot works in airplane mode; an Offline badge shows when there is no connection.
 There is no build step and no framework: plain ES modules and canvas.
 
 **Demo video and slides:** [30-second demo video](submission/LunaHorizon_Demo_30s.mp4) ·
@@ -88,6 +88,7 @@ python3 tools/validate.py <kernel-dir>
 
 The site list (with the chosen representative points) is `tools/sites.py`. After changing anything in `app/data/`,
 bump `DATA` in `app/sw.js` so installed copies replace their offline data (app code refreshes on its own; terrain users downloaded survives code updates).
+After changing any file in `app/`, run `python3 tools/build_offline_manifest.py` to refresh the "Save everything for offline" list (`app/data/offline.json`); `npm test` fails if it is out of date.
 
 ## Project layout
 

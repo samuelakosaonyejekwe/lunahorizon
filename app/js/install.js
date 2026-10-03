@@ -1,6 +1,7 @@
 // "Install as an app" on every device: detects the browser, captures the Chromium install prompt, and drives the
 // Install button in the top bar, the Install dialog, the Home-page banner and the Settings section.
 import { h, toast } from './ui.js';
+import { offlinePanel } from './offline.js';
 
 const KEY = 'lh.installTip';
 let deferred = null;                       // Chrome/Edge/Samsung/Opera "beforeinstallprompt" event, kept for one-tap install
@@ -153,7 +154,8 @@ export function openInstallDialog() {
   if (!d) { d = h('dialog#install', { 'aria-labelledby': 'install-title' }); document.body.append(d); d.addEventListener('click', (e) => { if (e.target === d) d.close(); }); }
   const render = () => {
     if (isInstalled()) {
-      d.replaceChildren(head(), h('div.dlg-b', h('p', 'LunaHorizon is already installed on this device. Open it from your home screen or app list.')));
+      d.replaceChildren(head(), h('div.dlg-b', h('p', 'LunaHorizon is already installed on this device. Open it from your home screen or app list.'),
+        h('section', h('h3', { style: { margin: '0 0 8px' } }, 'Use it offline and in airplane mode'), offlinePanel())));
       return;
     }
     const x = route();
@@ -163,7 +165,8 @@ export function openInstallDialog() {
           x.action ? h('div', { style: { marginTop: '10px' } }, actionButton(x.action)) : null,
           x.note ? h('p.muted', { style: { margin: '10px 0 0', fontSize: '13px' } }, x.note) : null),
         h('section', h('h3', { style: { margin: '0 0 8px' } }, 'Why install'),
-          h('p', { style: { margin: 0, color: 'var(--text-2)' } }, 'Its own icon and full-screen window, faster start, and it keeps working with no connection for every page and spot you have opened.')),
+          h('p', { style: { margin: 0, color: 'var(--text-2)' } }, 'Its own icon and full-screen window, a faster start, and it works with no connection.')),
+        h('section', h('h3', { style: { margin: '0 0 8px' } }, 'Use it offline and in airplane mode'), offlinePanel()),
         h('details.allplat', h('summary', 'Installing on a different device'),
           h('dl', ALL.map(([k, v]) => [h('dt', k), h('dd', v)]))),
         h('small.muted', 'Installing is optional: the full app also works in any browser tab.')));
@@ -187,6 +190,9 @@ export function wireInstallButton(btn) {
   window.matchMedia?.('(display-mode: standalone)').addEventListener?.('change', sync);
   sync();
 }
+
+/** True when the Home install banner is not showing (installed or dismissed) */
+export const installBannerHidden = () => isInstalled() || dismissed();
 
 /** One-time Home-page banner on every device (hidden once installed or dismissed) */
 export function installBanner() {

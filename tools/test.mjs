@@ -90,5 +90,19 @@ const { relayPosition, RELAYS } = await import('../app/js/astro.js');
 const tp = performance.now(); ephemTable(t0, 3600e3, 8760); const ms = performance.now() - tp;
 ok(ms < 1500, `one year of hourly ephemeris in ${ms.toFixed(0)} ms`);
 
+// 10. Offline: the "Save everything for offline" list covers every app file with its current size
+{
+  const root = new URL('../app/', import.meta.url).pathname;
+  const skip = new Set(['data/offline.json', 'sw.js', 'vendor/fflate.LICENSE', '.nojekyll']);
+  const walk = (d) => fs.readdirSync(root + d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(d + e.name + '/') : [d + e.name]);
+  const actual = walk('').filter((p) => !skip.has(p)).sort();
+  const list = JSON.parse(fs.readFileSync(root + 'data/offline.json', 'utf8')).files;
+  const sizesOk = list.every(([p, n]) => fs.existsSync(root + p) && fs.statSync(root + p).size === n);
+  ok(JSON.stringify(list.map(([p]) => p)) === JSON.stringify(actual) && sizesOk, `offline list matches the ${actual.length} app files (run tools/build_offline_manifest.py if not)`);
+  const sw = fs.readFileSync(root + 'sw.js', 'utf8');
+  const shell = [...sw.match(/const SHELL = \[([^\]]+)\]/)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).filter((p) => p !== './');
+  ok(shell.every((p) => fs.existsSync(root + p)), `every service-worker shell file exists (${shell.length})`);
+}
+
 console.log(fails ? `\n${fails} test(s) failed` : '\nAll tests passed');
 process.exit(fails ? 1 : 0);
