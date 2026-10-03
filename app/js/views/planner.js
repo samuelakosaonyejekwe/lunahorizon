@@ -30,9 +30,12 @@ function parseC(v) {
 export function mount(root) {
   const q = query();
   const prof = PROFILES[q.profile] ? q.profile : 'artemis';
+  const linked = parseC(q.c);
+  // a shared link whose constraints differ from its preset is a custom search
+  const edited = prof !== 'custom' && Object.keys(linked).some((k) => linked[k] !== PROFILES[prof][k]);
   const st = {
-    profile: prof,
-    c: { ...PROFILES[prof], ...parseC(q.c) },
+    profile: edited ? 'custom' : prof,
+    c: { ...PROFILES[prof], ...linked, ...(edited ? { label: 'Custom', why: `Custom constraints, starting from the ${PROFILES[prof].label} profile.` } : {}) },
     sites: (q.sites ? q.sites.split(',') : ['connecting-ridge', 'peak-near-shackleton', 'nobile-rim-2', 'mons-mouton', 'malapert-massif', 'de-gerlache-rim-2']).filter(getSite),
     start: isFinite(parseIso(q.start)) ? parseIso(q.start) : startOfDayUTC(Date.now()),
     months: Math.min(24, Math.max(1, Math.round(+q.months) || 12)),   // links are user input: keep the search bounded
@@ -44,6 +47,7 @@ export function mount(root) {
     st.profile = k; st.c = { ...PROFILES[k] }; [...profSeg.children].forEach((b) => b.classList.toggle('on', b === e.target)); renderConstraints(); run(); } }, p.label)));
   const why = h('p.muted', { style: { fontSize: '13px', margin: '8px 0 0' } });
   const consBox = h('div.formgrid');
+  const startLbl = h('span');
   const startIn = h('input', { type: 'date', value: toDateInput(st.start), onchange: () => { const v = fromDateInput(startIn.value); if (isFinite(v)) st.start = v; } });
   const monthsIn = h('select', { onchange: () => { st.months = +monthsIn.value; } }, [1, 3, 6, 12, 18, 24].map((m) => h('option', { value: m, selected: m === st.months }, `${m} month${m > 1 ? 's' : ''}`)));
   const status = h('div');
@@ -66,7 +70,7 @@ export function mount(root) {
           h('button.btn.small.ghost', { onclick: () => { st.sites = []; renderChips(); } }, 'Clear')),
         chipBox,
         h('div.hr'),
-        h('div.row', h('label.field', { style: { width: '170px' } }, h('span', `Search from (${settings.tz === 'utc' ? 'UTC' : 'local'})`), startIn), h('label.field', { style: { width: '150px' } }, h('span', 'Search span'), monthsIn),
+        h('div.row', h('label.field', { style: { width: '170px' } }, startLbl, startIn), h('label.field', { style: { width: '150px' } }, h('span', 'Search span'), monthsIn),
           h('div', { style: { flex: 1 } }), h('button.btn.primary', { onclick: run }, icon(ICONS.search), 'Find windows'))),
       status, summaryBox,
       h('div.card', h('header', h('h2', 'Feasibility calendar'), h('span.muted', { style: { fontSize: '13px' } }, 'best landing time each day · gray = no feasible landing'), h('div.spacer'),
@@ -85,9 +89,19 @@ export function mount(root) {
   function check(label, key) {
     return h('label.check', h('input', { type: 'checkbox', checked: st.c[key], onchange: (e) => { st.c[key] = e.target.checked; markCustom(); } }), label);
   }
-  function markCustom() { st.customized = true; }
-  function renderConstraints() {
+  function markCustom() {
+    if (st.profile === 'custom') return;
+    const from = PROFILES[st.profile].label;
+    st.profile = 'custom'; st.c.label = 'Custom'; st.c.why = `Custom constraints, starting from the ${from} profile.`;
+    [...profSeg.children].forEach((b, i) => b.classList.toggle('on', Object.keys(PROFILES)[i] === 'custom'));
+    renderWhy();
+  }
+  function renderWhy() {
     why.textContent = (st.c.why || '') + (settings.relay && settings.relay !== 'none' ? ` Comms include the relay: ${RELAYS[settings.relay].name}.` : ' Comms are direct-to-Earth only; add a relay orbiter in Settings.');
+    startLbl.textContent = `Search from (${settings.tz === 'utc' ? 'UTC' : 'local'})`;
+  }
+  function renderConstraints() {
+    renderWhy();
     consBox.replaceChildren(
       slider('Surface stay', 'durH', 24, 2400, 6, ' h'),
       slider('Min sunlit time', 'minLitPct', 0, 100, 1, '%'),
@@ -216,7 +230,7 @@ export function mount(root) {
     download('landing_windows.ics', ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//LunaHorizon//Landing Windows//EN', ...ev, 'END:VCALENDAR'].join('\r\n'), 'text/calendar');
   }
 
-  const off = onSettings(() => { renderConstraints(); run(); });
+  const off = onSettings(() => { renderConstraints(); startIn.value = toDateInput(st.start); run(); });
   renderConstraints(); renderChips(); run();
   return { unmount() { off(); heat.destroy(); } };
 }

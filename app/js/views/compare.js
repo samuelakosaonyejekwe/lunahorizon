@@ -38,6 +38,10 @@ export function mount(root) {
   const chipBox = h('div.chips');
   const startIn = h('input', { type: 'date', value: toDateInput(st.start), 'aria-label': 'Start date', onchange: () => { const v = fromDateInput(startIn.value); if (isFinite(v)) { st.start = v; run(); } } });
   const durSeg = h('div.seg', DURS.map(([d, l]) => h('button', { class: d === st.days ? 'on' : '', onclick: (e) => { st.days = d; [...durSeg.children].forEach((b) => b.classList.toggle('on', b === e.target)); run(); } }, l)));
+  const zoneName = () => (settings.tz === 'utc' ? 'UTC' : 'local');
+  const startLbl = h('span'), dayLbl = h('span.muted', { style: { fontSize: '13px' } });
+  const zoneLabels = () => { startLbl.textContent = `Start (${zoneName()} day)`; dayLbl.textContent = `% of each ${zoneName()} day`; };
+  zoneLabels();
   const status = h('div');
   const tableBox = h('div.tablewrap');
   const laneBox = h('div.chart', { style: { height: '300px' } });
@@ -101,14 +105,14 @@ export function mount(root) {
         h('button.btn.small.ghost', { onclick: () => { st.sites = []; renderChips(); } }, 'Clear')),
       chipBox,
       h('div.hr'),
-      h('div.row', h('label.field', { style: { width: '170px' } }, h('span', `Start (${settings.tz === 'utc' ? 'UTC' : 'local'} day)`), startIn), h('div.field', h('span', 'Period'), durSeg),
+      h('div.row', h('label.field', { style: { width: '170px' } }, startLbl, startIn), h('div.field', h('span', 'Period'), durSeg),
         h('div', { style: { flex: 1 } }), h('button.btn.primary', { onclick: run }, icon(ICONS.compare), 'Compare'))),
     status,
     h('div.card', { style: { marginBottom: '16px' } }, h('header', h('h2', 'Ranking'), h('span.muted', { style: { fontSize: '13px' } }, 'click a column to sort · ★ best'), h('div.spacer'),
       h('button.btn.small', { onclick: exportCsv }, icon(ICONS.dl), 'CSV')), tableBox),
     h('div.card', { style: { marginBottom: '16px' } }, h('header', h('h2', 'Sunlight and Earth visibility over time'), h('div.spacer'),
       h('div.legend', h('span', h('i', { style: { background: 'var(--sun)' } }), 'Sunlit'), h('span', h('i', { style: { background: 'var(--earth)' } }), 'Earth in view'))), laneBox),
-    h('div.card', h('header', h('h2', 'Daily calendar'), h('span.muted', { style: { fontSize: '13px' } }, '% of each UTC day'), h('div.spacer'), metricSeg), heatBox,
+    h('div.card', h('header', h('h2', 'Daily calendar'), dayLbl, h('div.spacer'), metricSeg), heatBox,
       h('div.legend', { style: { marginTop: '8px' } }, h('span', 'Low'), h('span', { style: { display: 'inline-block', width: '160px', height: '10px', borderRadius: '3px', background: 'linear-gradient(90deg, var(--surface-2), var(--accent))' }, id: 'heatramp' }), h('span', 'High'))),
     cycCard,
   );
@@ -206,7 +210,7 @@ export function mount(root) {
     download(`compare_${isoMin(st.start).slice(0, 10)}_${st.days}d.csv`, lines.join('\n'), 'text/csv');
   }
 
-  const off = onSettings(() => run());
+  const off = onSettings(() => { zoneLabels(); startIn.value = toDateInput(st.start); run(); });
   renderChips();
   run();
   return { unmount() { off(); lanes.destroy(); heat.destroy(); cycHeat.destroy(); window.removeEventListener('themechange', updRamp); } };

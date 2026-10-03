@@ -276,7 +276,11 @@ export function panorama(container, getState, onHover) {
     tip.style.display = 'block';
     tip.style.left = Math.min(x + 12, r.width - 170) + 'px'; tip.style.top = Math.max(0, y - 60) + 'px';
   });
-  const end = (e) => { pts.delete(e.pointerId); if (pts.size === 0) drag = null; };
+  const end = (e) => {
+    pts.delete(e.pointerId);
+    if (pts.size === 0) drag = null;
+    else if (pts.size === 1) { const st = getState(); drag = { x: [...pts.values()][0], c: st?.center ?? 180, z: st?.zoom || 1, d0: 0 }; }   // pinch ended: no jump
+  };
   cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
   cv.addEventListener('pointerleave', () => { tip.style.display = 'none'; });
   cv.addEventListener('wheel', (e) => {
