@@ -3,3 +3,5 @@ node_modules/
 __pycache__/
 # Submission write-ups stay local; only the video and slides are published
 submission/*.md
+voiceover_work/
+production_tools/
