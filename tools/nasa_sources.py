@@ -78,7 +78,7 @@ elif '--record' in sys.argv:
     json.dump(now, open(RECORD, 'w'), indent=1)
     meta = json.load(open(META))
     meta['nasa_sources'] = {name: v['last_modified'] for name, v in now.items()}
-    json.dump(meta, open(META, 'w'), indent=1)
+    json.dump(meta, open(META, 'w'), indent=1, sort_keys=True)
     print('recorded', ', '.join(f"{n} ({v['last_modified']})" for n, v in now.items()))
 else:
     print(__doc__)

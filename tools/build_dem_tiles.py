@@ -17,5 +17,5 @@ for r in range(rows):
         with open(OUT + f'dem_tiles/t_{r}_{c}.bin.gz', 'wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=9, mtime=0) as f: f.write(t.tobytes())
         sizes.append(os.path.getsize(OUT + f'dem_tiles/t_{r}_{c}.bin.gz')); total += sizes[-1]
 meta['dem_near_tiles'] = dict(tile=T, rows=rows, n=n, half_m=m['half_m'], cell=m['cell'], bytes=sizes)  # compressed sizes, for download progress
-json.dump(meta, open(OUT + 'meta.json', 'w'), indent=1)
+json.dump(meta, open(OUT + 'meta.json', 'w'), indent=1, sort_keys=True)   # sorted: the same bytes whatever order the steps ran in
 print(rows * rows, 'tiles,', round(total / 1e6, 2), 'MB total')

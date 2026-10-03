@@ -7,46 +7,28 @@
   "half_m": 80000.0,
   "px": 1400
  },
- "dem_near": {
-  "half_m": 303000.0,
-  "cell": 400.0,
-  "n": 1515
- },
- "dem_far": {
-  "half_m": 455000.0,
-  "cell": 1600.0,
-  "n": 569,
-  "bytes": 556021
- },
- "overlay": {
-  "half_m": 200000,
-  "cell": 1000,
-  "n": 400,
-  "year": "2026-2044 mean",
-  "step_h": 6,
-  "desc": "R = % Sun center visible, G = % Earth center visible, B = % both; 2 m height; mean of 19 years"
+ "dem3d_coarse": {
+  "cell": 800.0,
+  "half_m": 200000.0,
+  "n": 500
  },
  "dem3d_fine": {
+  "cell": 312.5,
   "half_m": 80000.0,
-  "n": 512,
-  "cell": 312.5
+  "n": 512
  },
- "dem3d_coarse": {
-  "half_m": 200000.0,
-  "n": 500,
-  "cell": 800.0
+ "dem_far": {
+  "bytes": 556021,
+  "cell": 1600.0,
+  "half_m": 455000.0,
+  "n": 569
  },
- "overlay_years": {
-  "year0": 2026,
-  "years": 19,
-  "step_h": 6
+ "dem_near": {
+  "cell": 400.0,
+  "half_m": 303000.0,
+  "n": 1515
  },
  "dem_near_tiles": {
-  "tile": 128,
-  "rows": 12,
-  "n": 1515,
-  "half_m": 303000.0,
-  "cell": 400.0,
   "bytes": [
    25809,
    27045,
@@ -192,12 +174,30 @@
    22033,
    18204,
    15452
-  ]
+  ],
+  "cell": 400.0,
+  "half_m": 303000.0,
+  "n": 1515,
+  "rows": 12,
+  "tile": 128
  },
  "nasa_sources": {
-  "ldem_80s_80m.img": "Thu, 06 Jul 2017 13:48:41 GMT",
   "ldem_75s_240m.img": "Thu, 06 Jul 2017 13:36:45 GMT",
   "ldem_80s_20m.img": "Thu, 06 Jul 2017 13:47:16 GMT",
+  "ldem_80s_80m.img": "Thu, 06 Jul 2017 13:48:41 GMT",
   "ldem_875s_5m.img": "Thu, 06 Jul 2017 14:03:28 GMT"
+ },
+ "overlay": {
+  "cell": 1000,
+  "desc": "R = % Sun center visible, G = % Earth center visible, B = % both; 2 m height; mean of 19 years",
+  "half_m": 200000,
+  "n": 400,
+  "step_h": 6,
+  "year": "2026-2044 mean"
+ },
+ "overlay_years": {
+  "step_h": 6,
+  "year0": 2026,
+  "years": 19
  }
 }

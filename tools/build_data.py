@@ -204,7 +204,7 @@ def main():
         print(s['id'], s['lat'], s['lon'], s.get('elev_m'))
     json.dump(dict(horizon_step_deg=0.5, mast_m=2.0, sites=out), open(OUT + 'sites.json', 'w'), separators=(',', ':'))
     json.dump(dict(horizon_step_deg=0.5, mast_m=10.0, horizons=tall), open(OUT + 'horizons10.json', 'w'), separators=(',', ':'))
-    json.dump(meta, open(OUT + 'meta.json', 'w'), indent=1)
+    json.dump(meta, open(OUT + 'meta.json', 'w'), indent=1, sort_keys=True)   # sorted: the same bytes whatever order the steps ran in
 
 
 if __name__ == '__main__':

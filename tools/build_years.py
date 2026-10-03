@@ -22,7 +22,7 @@ meta = json.load(open(OUT + 'meta.json'))
 meta['overlay'] = dict(half_m=m['half_m'], cell=m['cell'], n=n, year=f"{m['year0']}-{m['year0'] + Y - 1} mean", step_h=m['step_h'],
                        desc=f'R = % Sun center visible, G = % Earth center visible, B = % both; 2 m height; mean of {Y} years')
 meta['overlay_years'] = dict(year0=m['year0'], years=Y, step_h=m['step_h'])
-json.dump(meta, open(OUT + 'meta.json', 'w'), indent=1)
+json.dump(meta, open(OUT + 'meta.json', 'w'), indent=1, sort_keys=True)   # sorted: the same bytes whatever order the steps ran in
 land = a[0, ..., 0] > 0
 per_year_sun = a[..., 0][:, land].mean(1) / 2.55
 print('mean sunlit % over the map, by year:', ' '.join(f'{m["year0"] + k}:{v:.1f}' for k, v in enumerate(per_year_sun)))

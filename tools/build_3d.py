@@ -25,4 +25,4 @@ for name, half, n, fine in (('dem3d_fine', 80e3, 512, True), ('dem3d_coarse', 20
     with open(bd.OUT + name + '.bin.gz', 'wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=9, mtime=0) as f: f.write(arr.tobytes())  # mtime=0: reproducible bytes
     meta[name] = dict(half_m=half, n=n, cell=cell)
     print(name, arr.shape, arr.min(), arr.max())
-json.dump(meta, open(bd.OUT + 'meta.json', 'w'), indent=1)
+json.dump(meta, open(bd.OUT + 'meta.json', 'w'), indent=1, sort_keys=True)

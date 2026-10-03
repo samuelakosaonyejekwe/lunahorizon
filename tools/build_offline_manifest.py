@@ -1,8 +1,10 @@
 """Lists every file the app needs to work fully offline (app code + all data) with its size, for the
 "Save everything for offline" option, and keeps the service worker's cache names in step with the files:
   - app/data/offline.json  the file list, total size, and a content hash of the code and of the data
-  - app/sw.js              VERSION (app shell cache) is bumped when any code file changes; DATA (terrain/map cache)
-                           is bumped only when a data file changes, so an app update never discards downloaded terrain
+  - app/sw.js              VERSION (app shell cache) and DATA (terrain/map cache) names come from the content: they
+                           change exactly when the code or the data changes (to a name built from its hash), so two
+                           different versions can never share a name, even when GitHub rebuilds the live data on its own;
+                           an app update never discards downloaded terrain unless the data itself changed
 It also checks that the service worker precaches every code file (its SHELL list).
 Usage: python3 tools/build_offline_manifest.py           rewrite after changing anything in app/
        python3 tools/build_offline_manifest.py --check   exit 1 if anything is out of date (run by tools/test.mjs)"""
@@ -31,17 +33,15 @@ code_hash, data_hash = digest([p for p, _ in files if not is_data(p)]), digest([
 man_path, sw_path = os.path.join(ROOT, 'data', 'offline.json'), os.path.join(ROOT, 'sw.js')
 old = json.load(open(man_path)) if os.path.exists(man_path) else {}
 sw = open(sw_path).read()
-version, data_cache = re.search(r"const VERSION = '(lh-v(\d+))'", sw), re.search(r"const DATA = '(lh-data-(\d+))'", sw)
+version, data_cache = re.search(r"const VERSION = '(lh-[^']+)'", sw), re.search(r"const DATA = '(lh-data-[^']+)'", sw)
 shell = set(re.findall(r"'([^']+)'", re.search(r'const SHELL = \[([^\]]+)\]', sw).group(1)))
 shell |= set(re.findall(r"'([^']+)'", re.search(r'const FALLBACK = [^\[]*\[([^\]]*)\]', sw).group(1)))   # precached only where needed
 problems = [f'sw.js SHELL is missing {p}' for p, _ in files if not is_data(p) and p.endswith(('.js', '.css', '.html', '.webmanifest')) and p not in shell]
 problems += [f'sw.js SHELL lists a missing file: {p}' for p in shell - {'./'} if not os.path.exists(os.path.join(ROOT, p))]
 
-new_version, new_data = version.group(1), data_cache.group(1)
-if old.get('code') and old['code'] != code_hash and old.get('version') == new_version:
-    new_version = f'lh-v{int(version.group(2)) + 1}'
-if old.get('data') and old['data'] != data_hash and old.get('dataCache') == new_data:
-    new_data = f'lh-data-{int(data_cache.group(2)) + 1}'
+# unchanged content keeps its current name (nothing to download again); changed content gets a name from its hash
+new_version = version.group(1) if old.get('code') in (None, code_hash) else f'lh-{code_hash[:12]}'
+new_data = data_cache.group(1) if old.get('data') in (None, data_hash) else f'lh-data-{data_hash[:12]}'
 out = {'files': files, 'bytes': sum(s for _, s in files), 'code': code_hash, 'data': data_hash, 'version': new_version, 'dataCache': new_data}
 
 if '--check' in sys.argv:
