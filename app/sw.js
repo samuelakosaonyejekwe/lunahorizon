@@ -2,8 +2,9 @@
 // Data: cache-first, since it is large and immutable per version.
 // Two caches, so an app update never throws away terrain a user downloaded for offline use:
 //   VERSION: the app shell, replaced on every release.
-//   DATA:    data/ files (tiles, maps, terrain). Bump it ONLY when anything under data/ changes, since data is served cache-first.
-const VERSION = 'lh-v11';
+//   DATA:    data/ files (tiles, maps, terrain), replaced only when one of them changes, since data is served cache-first.
+// tools/build_offline_manifest.py bumps both names from content hashes; tools/test.mjs fails if they are stale.
+const VERSION = 'lh-v19';
 const DATA = 'lh-data-6';
 const SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/ui.js', 'js/astro.js', 'js/engine.js', 'js/charts.js', 'js/worker.js', 'js/jobs.js', 'js/gz.js', 'js/install.js', 'js/offline.js',
   'js/views/home.js', 'js/views/map.js', 'js/views/site.js', 'js/views/compare.js', 'js/views/planner.js', 'js/views/learn.js', 'js/views/view3d.js',
@@ -13,8 +14,10 @@ const LAZY = ['data/basemap.jpg', 'data/basemap_zoom.jpg', 'data/overlay.png'];
 const FALLBACK = typeof DecompressionStream === 'undefined' ? ['vendor/fflate.js'] : [];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll([...SHELL, ...FALLBACK]))
-    .then(() => caches.open(DATA)).then((c) => Promise.all(LAZY.map((u) => c.match(u).then((hit) => hit || c.add(u)))).catch(() => {}))
+  // cache: 'reload' bypasses the browser's HTTP cache, so a new release never precaches files from the previous one
+  const fresh = (u) => new Request(u, { cache: 'reload' });
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll([...SHELL, ...FALLBACK].map(fresh)))
+    .then(() => caches.open(DATA)).then((c) => Promise.all(LAZY.map((u) => c.match(u).then((hit) => hit || c.add(fresh(u))))).catch(() => {}))
     .then(() => self.skipWaiting()));
 });
 // Before the shell and data caches were split (lh-v6) everything lived in one cache; keep its downloads (same data as DATA)
@@ -27,14 +30,16 @@ async function migrate() {
   }
 }
 self.addEventListener('activate', (e) => {
-  e.waitUntil(migrate().catch(() => {}).then(() => caches.keys()).then((ks) => Promise.all(ks.filter((k) => k !== VERSION && k !== DATA).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  // Only this app's own old caches (all named lh-…) are removed.
+  e.waitUntil(migrate().catch(() => {}).then(() => caches.keys()).then((ks) => Promise.all(ks.filter((k) => k.startsWith('lh-') && k !== VERSION && k !== DATA).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   const isData = url.pathname.includes('/data/') && !url.pathname.endsWith('.json');
   if (isData) {
-    e.respondWith(caches.match(e.request).then((r) => r || fetch(e.request).then((res) => {
+    // a data file is kept for good once cached, so fetch it revalidated (no-cache), never a stale HTTP-cache copy
+    e.respondWith(caches.match(e.request).then((r) => r || fetch(e.request, { cache: 'no-cache' }).then((res) => {
       if (res.ok) { const copy = res.clone(); e.waitUntil(caches.open(DATA).then((c) => c.put(e.request, copy))); }
       return res;
     }).catch(() => new Response('', { status: 503, statusText: 'Offline' }))));   // not downloaded yet and no connection

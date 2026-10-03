@@ -1,5 +1,6 @@
 // Shared UI helpers, app state and services.
 import { DEFAULTS, decodeHorizon, encodeHorizon } from './engine.js';
+import { RELAYS } from './astro.js';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -30,7 +31,20 @@ const SKEY = 'lh.settings';
 const load = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
 
-export const settings = { tz: 'utc', theme: 'auto', mastM: 2, ...DEFAULTS, ...load(SKEY, {}) };
+// Settings are stored on the device, where a refresh cannot reset them: anything saved by an older version or damaged
+// is dropped back to its default instead of breaking pages. The ranges are also the Settings sliders' ranges.
+export const SETTING_RANGES = { sunMinFrac: [0.05, 1, 0.05], earthMarginDeg: [0, 3, 0.25], dsnMinEl: [0, 25, 1], relayMaskDeg: [0, 10, 0.5],
+  panelAz: [0, 359, 1], panelArea: [0.5, 20, 0.5], panelEff: [0.1, 0.4, 0.01], loadW: [10, 2000, 10], batteryWh: [0, 20000, 100] };
+const SETTING_CHOICES = { tz: ['utc', 'local'], theme: ['auto', 'dark', 'light'], panel: ['vtrack', 'vfixed', 'horizontal'], relay: Object.keys(RELAYS), mastM: [2, 10] };
+function cleanSettings(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [k, ok] of Object.entries(SETTING_CHOICES)) if (ok.includes(raw[k])) out[k] = raw[k];
+  for (const [k, [lo, hi]] of Object.entries(SETTING_RANGES)) if (typeof raw[k] === 'number' && Number.isFinite(raw[k])) out[k] = Math.min(hi, Math.max(lo, raw[k]));
+  if (typeof raw.requireDSN === 'boolean') out.requireDSN = raw.requireDSN;
+  return out;
+}
+export const settings = { tz: 'utc', theme: 'auto', mastM: 2, ...DEFAULTS, ...cleanSettings(load(SKEY, {})) };
 const listeners = new Set();
 export function onSettings(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 /** Southernmost latitude band with LOLA terrain horizons; elsewhere a smooth horizon is used (same as tools/sites.py) */
@@ -124,19 +138,34 @@ export function toast(msg, ms = 2600) {
 export const store = { sites: [], byId: new Map(), meta: null };
 const CKEY = 'lh.custom';
 
+/** The user's own sites as stored on this device; a damaged or outdated record is skipped (and dropped from storage), never fatal */
+function customRecords() {
+  const raw = load(CKEY, []);
+  const all = Array.isArray(raw) ? raw : [];
+  const good = all.filter((c) => {
+    try {
+      if (!c || typeof c.id !== 'string' || !c.id.startsWith('custom-') || typeof c.name !== 'string') return false;
+      if (!Number.isFinite(c.lat) || c.lat < -90 || c.lat > 90 || !Number.isFinite(c.lon)) return false;
+      return c.horizon == null || decodeHorizon(c.horizon).length === 720;
+    } catch { return false; }
+  });
+  if (good.length !== all.length || !Array.isArray(raw)) save(CKEY, good);
+  return good;
+}
+
 export async function loadSites() {
   const json = (url) => fetch(url).then((r) => { if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`); return r.json(); });
   const [sj, meta] = await Promise.all([json('data/sites.json'), json('data/meta.json').catch(() => null)]);
   store.meta = meta;
   const list = sj.sites.map((s) => { const hz2 = decodeHorizon(s.horizon); return { ...s, hz2, hz10: null, hz: hz2, horizon: undefined }; });
-  for (const c of load(CKEY, [])) list.push({ ...c, hz: decodeHorizon(c.horizon), horizon: undefined, custom: true, group: 'Custom' });
+  for (const c of customRecords()) list.push({ ...c, hz: decodeHorizon(c.horizon), horizon: undefined, custom: true, group: 'Custom' });
   store.sites = list;
   store.byId = new Map(list.map((s) => [s.id, s]));
   await applyMast().catch(() => {});      // a missing 10 m file falls back to the 2 m horizons
   return list;
 }
 export function addCustomSite(site) {
-  const cur = load(CKEY, []).filter((c) => c.id !== site.id);
+  const cur = customRecords().filter((c) => c.id !== site.id);
   const rec = { id: site.id, name: site.name, lat: site.lat, lon: site.lon, elev_m: site.elev_m, precision: 'custom', group: 'Custom',
     terrain: site.terrain, note: site.note || '', src: 'User-defined', horizon: site.hz ? encodeHorizon(site.hz) : null, mast: site.mast };
   cur.push(rec); save(CKEY, cur);
@@ -147,7 +176,7 @@ export function addCustomSite(site) {
   return full;
 }
 export function removeCustomSite(id) {
-  save(CKEY, load(CKEY, []).filter((c) => c.id !== id));
+  save(CKEY, customRecords().filter((c) => c.id !== id));
   store.sites = store.sites.filter((s) => s.id !== id);
   store.byId.delete(id);
 }
@@ -224,6 +253,10 @@ export const isoMin = (ms) => new Date(ms).toISOString().slice(0, 16) + 'Z';
 export const parseIso = (s) => (s ? Date.parse(s.endsWith('Z') ? s : s + 'Z') : NaN);
 
 // ------------------------------------------------------------------ misc
+/** Text that goes into HTML strings (tooltips, labels): site names can come from device storage, so never trust them as markup */
+export const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/** One CSV text cell: quotes doubled, and a leading = + - @ neutralised so spreadsheets never run it as a formula */
+export const csvCell = (s) => `"${String(s).replace(/"/g, '""').replace(/^([=+\-@\t\r])/, "'$1")}"`;
 export function download(name, content, type = 'text/plain') {
   const blob = content instanceof Blob ? content : new Blob([content], { type });
   const a = h('a', { href: URL.createObjectURL(blob), download: name });

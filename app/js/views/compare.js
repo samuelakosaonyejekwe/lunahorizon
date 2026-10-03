@@ -1,15 +1,16 @@
 // Compare Sites: ranked metrics, synchronized swimlanes, daily calendar heatmap.
 import { h, store, getSite, settings, onSettings, engineOpts, compute, siteMsg, fmtPct, fmtDur, fmtTime, toDateInput, fromDateInput,
-  query, setQuery, isoMin, parseIso, download, icon, ICONS, groupTag, startOfDayUTC, toast } from '../ui.js';
+  query, setQuery, isoMin, parseIso, download, icon, ICONS, groupTag, startOfDayUTC, toast, escHtml, csvCell } from '../ui.js';
 import { swimlanes, heatmap, colors, rampColor, isDark } from '../charts.js';
 import { HOUR, DAY } from '../engine.js';
 
 const DURS = [[30, '1 month'], [90, '3 months'], [182, '6 months'], [365, '1 year']];
 const PRESETS = {
-  artemis: ['connecting-ridge', 'peak-near-shackleton', 'nobile-rim-1', 'nobile-rim-2', 'mons-mouton', 'malapert-massif', 'de-gerlache-rim-2', 'haworth', 'slater-plain', 'peak-near-cabeus-b'],
+  artemis: ['connecting-ridge', 'peak-near-shackleton', 'nobile-rim-1', 'nobile-rim-2', 'mons-mouton', 'mons-mouton-plateau', 'malapert-massif', 'de-gerlache-rim-2', 'haworth', 'slater-plain', 'peak-near-cabeus-b'],
   clps: ['im2-athena', 'im1-odysseus', 'blue-ghost-m1', 'schrodinger'],
   contrast: ['connecting-ridge', 'malapert-massif', 'shackleton-floor', 'blue-ghost-m1', 'schrodinger'],
 };
+const DEFAULT_SITES = ['connecting-ridge', 'peak-near-shackleton', 'nobile-rim-1', 'nobile-rim-2', 'mons-mouton', 'malapert-massif'];
 const COLS = [
   ['sunPct', 'Sunlit', (v) => fmtPct(v, 1), 1, 'sun'],
   ['earthPct', 'Earth in view', (v) => fmtPct(v, 1), 1, 'earth'],
@@ -26,14 +27,14 @@ const COLS = [
 export function mount(root) {
   const q = query();
   const st = {
-    sites: (q.sites ? q.sites.split(',') : PRESETS.artemis.slice(0, 6)).filter(getSite),
+    sites: (q.sites ? q.sites.split(',') : DEFAULT_SITES).filter(getSite),
     start: isFinite(parseIso(q.start)) ? parseIso(q.start) : startOfDayUTC(Date.now()),
     days: Math.min(730, Math.max(1, Math.round(+q.days) || 90)),     // links are user input: keep the run bounded
     metric: { dte: 'comms' }[q.metric] || (['lit', 'earth', 'comms', 'both'].includes(q.metric) ? q.metric : 'lit'),
     sort: COLS.some((c) => c[0] === q.sort) ? q.sort : 'sunPct', dir: -1,
     res: null, busy: false,
   };
-  if (!st.sites.length) st.sites = PRESETS.artemis.slice(0, 6);
+  if (!st.sites.length) st.sites = DEFAULT_SITES;
 
   const chipBox = h('div.chips');
   const startIn = h('input', { type: 'date', value: toDateInput(st.start), 'aria-label': 'Start date', onchange: () => { const v = fromDateInput(startIn.value); if (isFinite(v)) { st.start = v; run(); } } });
@@ -69,7 +70,7 @@ export function mount(root) {
     if (hi - lo < 1) { lo -= 0.5; hi += 0.5; }
     return { t0: 0, nd: NY, hue: { sun: 38, earth: 214, both: 158, comms: 250 }[cyc.metric], domain: [lo, hi],
       colLabels: Array.from({ length: NY }, (_, k) => String(Y0 + k)), rows,
-      cellTip: (row, d) => `<b>${row.label}</b> · ${Y0 + d}<br>Sunlit ${fmtPct(row.r.sun[d], 1)} · Earth ${fmtPct(row.r.earth[d], 1)}<br>Sun+Earth ${fmtPct(row.r.both[d], 1)} · Comms ${fmtPct(row.r.comms[d], 1)}<br>Longest shadow ${fmtDur(row.r.dark[d])}` };
+      cellTip: (row, d) => `<b>${escHtml(row.label)}</b> · ${Y0 + d}<br>Sunlit ${fmtPct(row.r.sun[d], 1)} · Earth ${fmtPct(row.r.earth[d], 1)}<br>Sun+Earth ${fmtPct(row.r.both[d], 1)} · Comms ${fmtPct(row.r.comms[d], 1)}<br>Longest shadow ${fmtDur(row.r.dark[d])}` };
   }, (row, d) => { location.hash = `#/site/${row.id}?t=${Y0 + d}-01-01T00:00Z&span=365`; });
   function cycSummary() {
     if (!cyc.res) return;
@@ -140,7 +141,7 @@ export function mount(root) {
       rows: st.res.results.map((r) => ({ id: r.id, label: getSite(r.id)?.name || r.id, values: r.daily[key] })),
       cellTip: (row, d) => {
         const r = st.res.results.find((x) => x.id === row.id);
-        return `<b>${row.label}</b><br>${fmtTime(st.res.t0 + d * DAY, { dateOnly: true })}<br>Sunlit ${fmtPct(r.daily.lit[d])} · Earth ${fmtPct(r.daily.earth[d])}<br>Comms ${fmtPct(r.daily.comms[d])} · Sun+Earth ${fmtPct(r.daily.both[d])}<br>Mean power ${r.daily.power[d].toFixed(0)} W`;
+        return `<b>${escHtml(row.label)}</b><br>${fmtTime(st.res.t0 + d * DAY, { dateOnly: true })}<br>Sunlit ${fmtPct(r.daily.lit[d])} · Earth ${fmtPct(r.daily.earth[d])}<br>Comms ${fmtPct(r.daily.comms[d])} · Sun+Earth ${fmtPct(r.daily.both[d])}<br>Mean power ${r.daily.power[d].toFixed(0)} W`;
       },
     };
   }, (row, d) => { location.hash = `#/site/${row.id}?t=${isoMin(st.res.t0 + d * DAY + 12 * HOUR)}&span=30`; });
@@ -206,7 +207,7 @@ export function mount(root) {
     if (!st.res) return;
     const head = ['site', 'lat', 'lon', ...COLS.map((c) => c[0])];
     const lines = [head.join(',')];
-    for (const r of st.res.results) { const s = getSite(r.id); lines.push([`"${s.name}"`, s.lat, s.lon, ...COLS.map((c) => r.stats[c[0]].toFixed(2))].join(',')); }
+    for (const r of st.res.results) { const s = getSite(r.id); lines.push([csvCell(s.name), s.lat, s.lon, ...COLS.map((c) => r.stats[c[0]].toFixed(2))].join(',')); }
     download(`compare_${isoMin(st.start).slice(0, 10)}_${st.days}d.csv`, lines.join('\n'), 'text/csv');
   }
 

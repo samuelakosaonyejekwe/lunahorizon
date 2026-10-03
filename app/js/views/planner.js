@@ -1,13 +1,13 @@
 // Landing Window Finder: sweeps every candidate landing time over a search range and evaluates the full surface stay.
 import { RELAYS } from '../astro.js';
 import { h, store, getSite, settings, onSettings, engineOpts, compute, siteMsg, fmtPct, fmtDur, fmtTime, toDateInput, fromDateInput,
-  query, setQuery, isoMin, parseIso, download, icon, ICONS, groupTag, startOfDayUTC, toast } from '../ui.js';
+  query, setQuery, isoMin, parseIso, download, icon, ICONS, groupTag, startOfDayUTC, toast, escHtml, csvCell } from '../ui.js';
 import { heatmap } from '../charts.js';
 import { HOUR, DAY } from '../engine.js';
 
 const PROFILES = {
-  artemis: { label: 'Artemis III crewed (6.5 d)', durH: 156, minLitPct: 100, maxDarkH: 0, minCommPct: 50, maxNoCommH: 48, useDSN: false, requireLanding: true, landSunMin: -2, landSunMax: 10,
-    why: 'Crew surface stays need continuous sunlight for the whole stay; comms can partly go through relay, so DTE is a softer constraint.' },
+  artemis: { label: 'Artemis III crewed (6.25 d)', durH: 150, minLitPct: 100, maxDarkH: 0, minCommPct: 50, maxNoCommH: 48, useDSN: false, requireLanding: true, landSunMin: -2, landSunMax: 10,
+    why: 'NASA plans a surface stay of about 5.75 to 6.25 days depending on the mission date (George et al., LPSC 2026); the longer stay is tested. The crew needs continuous sunlight for the whole stay; comms can partly go through a relay, so DTE is a softer constraint.' },
   clps: { label: 'CLPS lander (10 d)', durH: 240, minLitPct: 70, maxDarkH: 48, minCommPct: 60, maxNoCommH: 72, useDSN: true, requireLanding: true, landSunMin: -2, landSunMax: 20,
     why: 'Solar-powered landers must land in sunlight with a comms path (Earth, or a relay), then survive short shadows on battery.' },
   rover: { label: 'Long-duration rover (100 d)', durH: 2400, minLitPct: 55, maxDarkH: 110, minCommPct: 50, maxNoCommH: 200, useDSN: true, requireLanding: true, landSunMin: -2, landSunMax: 20,
@@ -126,10 +126,10 @@ export function mount(root) {
         const r = row.r, k = r.dayBest[d];
         const date = fmtTime(st.start + d * DAY, { dateOnly: true });
         if (k < 0 || r.dayScore[d] < 0) {
-          return `<b>${r.name}</b><br>${date}<br>No feasible landing: ${r.dayFail[d] || 'constraints not met'}`;
+          return `<b>${escHtml(r.name)}</b><br>${date}<br>No feasible landing: ${r.dayFail[d] || 'constraints not met'}`;
         }
         const s = r.scan;
-        return `<b>${r.name}</b><br>Land ${fmtTime(st.start + k * s.startStep * st.res.step)}<br>Sunlit ${fmtPct(s.lit[k])} · longest shadow ${fmtDur(s.maxDarkH[k])}<br>Comms ${fmtPct(st.c.useDSN ? s.dte[k] : s.earth[k])} · longest blackout ${fmtDur(s.maxNoCommH[k])}<br>Min Sun clearance ${s.minClear[k].toFixed(2)}° · score ${s.score[k].toFixed(0)}/100`;
+        return `<b>${escHtml(r.name)}</b><br>Land ${fmtTime(st.start + k * s.startStep * st.res.step)}<br>Sunlit ${fmtPct(s.lit[k])} · longest shadow ${fmtDur(s.maxDarkH[k])}<br>Comms ${fmtPct(st.c.useDSN ? s.dte[k] : s.earth[k])} · longest blackout ${fmtDur(s.maxNoCommH[k])}<br>Min Sun clearance ${s.minClear[k].toFixed(2)}° · score ${s.score[k].toFixed(0)}/100`;
       } };
   }, (row, d) => {
     const k = row.r.dayBest[d];
@@ -214,7 +214,7 @@ export function mount(root) {
   function exportCsv() {
     if (!st.ops) return;
     const lines = ['site,window_open_utc,window_close_utc,days,best_landing_utc,sunlit_pct,comms_pct,longest_shadow_h,longest_blackout_h,min_sun_clearance_deg,mean_power_w,score'];
-    for (const o of st.ops) lines.push([`"${o.site.name}"`, new Date(o.from).toISOString(), new Date(o.to).toISOString(), o.days, new Date(o.bestT).toISOString(),
+    for (const o of st.ops) lines.push([csvCell(o.site.name), new Date(o.from).toISOString(), new Date(o.to).toISOString(), o.days, new Date(o.bestT).toISOString(),
       o.lit.toFixed(1), o.comm.toFixed(1), o.maxDark.toFixed(1), o.maxNoComm.toFixed(1), o.minClear.toFixed(3), o.power.toFixed(0), o.score.toFixed(1)].join(','));
     download('landing_windows.csv', lines.join('\n'), 'text/csv');
   }

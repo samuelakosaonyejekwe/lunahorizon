@@ -7,7 +7,7 @@
   "scripts": {
     "start": "python3 -m http.server 8080 --directory app",
     "test": "node tools/test.mjs",
-    "maps": "node tools/overlay_years.mjs && python3 tools/build_years.py && python3 tools/build_offline_manifest.py",
+    "maps": "node tools/overlay_years.mjs && python3 tools/build_years.py && python3 tools/pick_region_points.py && python3 tools/build_offline_manifest.py",
     "data": "python3 tools/fetch_windows.py && python3 tools/build_data.py && python3 tools/build_dem_tiles.py && python3 tools/build_3d.py && python3 tools/build_offline_manifest.py"
   }
 }

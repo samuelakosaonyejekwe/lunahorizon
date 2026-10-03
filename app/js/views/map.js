@@ -175,10 +175,12 @@ export function mount(root) {
       const a = lon * Math.PI / 180;
       ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + rOut * Math.sin(a), py - rOut * Math.cos(a)); ctx.stroke();
     }
+    const tools = wrap.querySelector('.maptools');
+    const topY = tools ? tools.offsetTop + tools.offsetHeight + 12 : 52;   // keep edge labels clear of the toolbar (it wraps on phones)
     const lab = (txt, lon) => {
       const a = lon * Math.PI / 180; let r = Math.min(rOut, Math.max(W, H));
       let x = px + r * Math.sin(a), y = py - r * Math.cos(a);
-      x = Math.max(30, Math.min(W - 30, x)); y = Math.max(52, Math.min(H - 16, y));
+      x = Math.max(30, Math.min(W - 30, x)); y = Math.max(topY, Math.min(H - 16, y));
       ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillText(txt, x, y);
     };
     lab('0° · toward Earth', 0); lab('90°E', 90); lab('180°', 180); lab('90°W', 270);

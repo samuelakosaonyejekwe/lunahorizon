@@ -1,5 +1,7 @@
 // Visibility, power and communications engine. Pure functions over typed arrays, shared by the UI thread and the worker.
-import { ephem, siteFrame, topo, stationMoonElevation, DSN, earthPhase, diskFraction, relayPosition, relaySeesEarth, AU_KM, SUN_R_KM, EARTH_R_KM, MOON_R_KM, R2D } from './astro.js';
+import { ephem, siteFrame, topo, stationMoonElevation, DSN, earthPhase, diskFraction, relayPosition, relaySeesEarth, RELAYS, AU_KM, SUN_R_KM, EARTH_R_KM, MOON_R_KM, R2D } from './astro.js';
+
+const hasRelay = (r) => !!(r && RELAYS[r]?.frame);   // an unknown relay name (old setting, edited link) means no relay
 
 export const HOUR = 3600000;
 export const DAY = 86400000;
@@ -70,7 +72,7 @@ export function horizonAt(hz, az) {
 export function ephemTable(t0, stepMs, n, relay = 'none') {
   const sun = new Float64Array(n * 3), earth = new Float64Array(n * 3);
   const dsn = new Float32Array(n * 3), phase = new Float32Array(n);
-  const rel = relay && relay !== 'none' ? new Float64Array(n * 3) : null;
+  const rel = hasRelay(relay) ? new Float64Array(n * 3) : null;
   const relEarth = rel ? new Uint8Array(n) : null;
   for (let i = 0; i < n; i++) {
     const e = ephem(t0 + i * stepMs);
@@ -276,7 +278,7 @@ export function snapshot(site, ms, opts = DEFAULTS) {
   const earthFrac = diskFraction(te.el - ehz, earthR);
   const flux = SOLAR_CONSTANT * (AU_KM / ts.dist) ** 2;
   let relay = null;
-  if (o.relay && o.relay !== 'none') {
+  if (hasRelay(o.relay)) {
     const rp = relayPosition(o.relay, e);
     const tr = topo(f, rp);
     const rhz = horizonAt(site.hz, tr.az);

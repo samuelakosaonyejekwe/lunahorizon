@@ -177,14 +177,14 @@ def main():
         for path, arr in ((ROOT + '/raw/dem_near.bin.gz', near), (OUT + 'dem_far.bin.gz', far)):   # near grid is tiled by build_dem_tiles.py
             with open(path, 'wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=9, mtime=0) as f: f.write(arr.tobytes())  # mtime=0: reproducible bytes
     meta['dem_near'] = dict(half_m=303e3, cell=400.0, n=nn)
-    meta['dem_far'] = dict(half_m=455e3, cell=1600.0, n=nf)
+    meta['dem_far'] = dict(half_m=455e3, cell=1600.0, n=nf, bytes=os.path.getsize(OUT + 'dem_far.bin.gz'))   # compressed size, for download progress
     print('dems done', nn, nf)
 
     # ------------------------------------------------ sites
     out, tall = [], {}
     k = np.arange(720)
     for s in SITES:
-        s = dict(s)
+        s = {k: v for k, v in s.items() if k not in ('approx_lat', 'approx_lon', 'search_km')}   # selection inputs (tools/pick_region_points.py), not app data
         if s['lat'] <= DEM_LIMIT_LAT:
             wins = load_windows(s['id'])
             for mast in (2.0, 10.0):

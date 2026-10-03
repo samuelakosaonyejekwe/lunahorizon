@@ -1,7 +1,7 @@
 // 3D South Pole: LOLA terrain in WebGL2 with live, physically placed sunlight and ray-marched shadows.
 // Shadows use true (unexaggerated) heights over a ±200 km tile, including the Moon's curvature, and a soft
 // edge from the Sun's real angular radius, so a partly hidden Sun gives partial light.
-import { h, store, getSite, engineOpts, fmtTime, fmtDeg, fmtPct, toInput, fromInput, query, setQuery, isoMin, parseIso, icon, ICONS } from '../ui.js';
+import { h, store, getSite, engineOpts, fmtTime, fmtDeg, fmtPct, toInput, fromInput, query, setQuery, isoMin, parseIso, icon, ICONS, escHtml } from '../ui.js';
 import { ephem, SUN_R_KM, MOON_R_KM, R2D } from '../astro.js';
 import { snapshot, HOUR, DAY } from '../engine.js';
 import { gunzip } from '../gz.js';
@@ -331,7 +331,7 @@ export function mount(root) {
       if (s.lat > -84) continue;
       const [x, y] = llToXYkm(s.lat, s.lon);
       if (Math.max(Math.abs(x), Math.abs(y)) > cm.half_m / 1000) continue;
-      put([x, y, surfaceZ(x, y) + 0.05], `<span class="g3-pin"></span>${s.name}`, 'g3 g3-site' + (s.id === st.focus ? ' on' : ''), s.name);
+      put([x, y, surfaceZ(x, y) + 0.05], `<span class="g3-pin"></span>${escHtml(s.name)}`, 'g3 g3-site' + (s.id === st.focus ? ' on' : ''), s.name);
     }
     labels.innerHTML = out.join('');
   }
@@ -342,7 +342,7 @@ export function mount(root) {
     const s = getSite(st.focus);
     if (s) {
       const sn = snapshot(s, st.t, engineOpts());
-      info.innerHTML = `<b>${s.name}</b> · Sun ${fmtDeg(sn.sun.el, 2)} (${fmtPct(sn.sun.frac * 100)} of disk visible) · Earth ${fmtDeg(sn.earth.el, 2)} ${sn.earthVis ? 'in view' : 'hidden'}`;
+      info.innerHTML = `<b>${escHtml(s.name)}</b> · Sun ${fmtDeg(sn.sun.el, 2)} (${fmtPct(sn.sun.frac * 100)} of disk visible) · Earth ${fmtDeg(sn.earth.el, 2)} ${sn.earthVis ? 'in view' : 'hidden'}`;
     } else {
       const e = ephem(st.t);
       const sEl = Math.asin(-e.sun[2] / Math.hypot(...e.sun)) * R2D;

@@ -1,5 +1,5 @@
 // Canvas renderers: horizon panorama, sky plot, multi-lane timeline, swimlanes, calendar heatmap.
-import { h, cssVar, fmtTime, fmtShortDate, compass, fmtDeg, fmtPct, settings, MONTHS } from './ui.js';
+import { h, cssVar, fmtTime, fmtShortDate, compass, fmtDeg, fmtPct, settings, MONTHS, escHtml } from './ui.js';
 import { horizonAt } from './engine.js';
 
 /** Create a DPR-aware canvas inside a container. draw(ctx, w, h) is called on resize. */
@@ -39,7 +39,6 @@ export function colors() {
     sun: cssVar('--sun'), earth: cssVar('--earth'), both: cssVar('--both'), dsn: cssVar('--dsn'),
     text: cssVar('--text'), text2: cssVar('--text-2'), text3: cssVar('--text-3'), grid: cssVar('--grid'),
     surface: cssVar('--surface'), surface2: cssVar('--surface-2'), surface3: cssVar('--surface-3'), border: cssVar('--border'), accent: cssVar('--accent'),
-    bad: cssVar('--bad'), good: cssVar('--good'),
   };
 }
 const FONT = (px, w = 500) => `${w} ${px}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
@@ -483,7 +482,7 @@ export function timeline(container, getCfg, onSeek) {
       const L = row.L;
       const v = L.data[i];
       const txt = L.type === 'flag' ? (v ? 'yes' : 'no') : L.fmt ? L.fmt(v) : `${v.toFixed(2)}${L.unit || ''}`;
-      html += `<br><span class="sw" style="background:${L.color}"></span>${L.label}: <b>${txt}</b>`;
+      html += `<br><span class="sw" style="background:${L.color}"></span>${escHtml(L.label)}: <b>${escHtml(txt)}</b>`;
     }
     tip.innerHTML = html; tip.style.display = 'block';
     const x = e.clientX - r.left;
@@ -560,8 +559,8 @@ export function swimlanes(container, getCfg, onPick) {
     const row = geom.rowPos.find((p) => y >= p.y0 - 4 && y <= p.y1 + 4);
     if (f < 0 || f > 1 || !row) { tip.style.display = 'none'; return; }
     const i = Math.min(geom.n - 1, Math.floor(f * geom.n));
-    let html = `<b>${row.r.label}</b><br>${fmtTime(geom.t0 + i * geom.step)}`;
-    row.r.lanes.forEach((L) => { html += `<br><span class="sw" style="background:${L.color}"></span>${L.name}: <b>${L.data[i] ? 'yes' : 'no'}</b>`; });
+    let html = `<b>${escHtml(row.r.label)}</b><br>${fmtTime(geom.t0 + i * geom.step)}`;
+    row.r.lanes.forEach((L) => { html += `<br><span class="sw" style="background:${L.color}"></span>${escHtml(L.name)}: <b>${L.data[i] ? 'yes' : 'no'}</b>`; });
     tip.innerHTML = html; tip.style.display = 'block';
     tip.style.left = (x > r.width / 2 ? x - tip.offsetWidth - 12 : x + 12) + 'px'; tip.style.top = Math.max(0, row.y0 - 10) + 'px';
   });
@@ -652,7 +651,7 @@ export function heatmap(container, getCfg, onPick) {
     const p = pick(e);
     if (!p) { tip.style.display = 'none'; return; }
     const cfg = geom.cfg, row = cfg.rows[p.k];
-    tip.innerHTML = cfg.cellTip ? cfg.cellTip(row, p.d) : `<b>${row.label}</b><br>${fmtTime(cfg.t0 + p.d * 86400000, { dateOnly: true })}: <b>${fmtPct(row.values[p.d])}</b>`;
+    tip.innerHTML = cfg.cellTip ? cfg.cellTip(row, p.d) : `<b>${escHtml(row.label)}</b><br>${fmtTime(cfg.t0 + p.d * 86400000, { dateOnly: true })}: <b>${fmtPct(row.values[p.d])}</b>`;
     tip.style.display = 'block';
     tip.style.left = (p.x > p.r.width / 2 ? p.x - tip.offsetWidth - 12 : p.x + 12) + 'px';
     tip.style.top = Math.max(0, p.y - 20) + 'px';

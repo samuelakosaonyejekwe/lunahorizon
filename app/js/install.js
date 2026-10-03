@@ -49,15 +49,6 @@ export function detect() {
   return { ios, iosVer, android, inApp, browser, os, safariVer: sv ? +sv[1] : 0, mobile: ios || android };
 }
 
-/** Kept for callers that only need the family */
-export function platform() {
-  const d = detect();
-  if (d.ios) return 'ios';
-  if (d.browser === 'samsung') return 'samsung';
-  if (d.android) return d.browser === 'firefox' ? 'firefox' : 'android';
-  return 'desktop';
-}
-
 const dismissed = () => { try { return localStorage.getItem(KEY) === 'dismissed'; } catch { return false; } };
 function dismiss() { try { localStorage.setItem(KEY, 'dismissed'); } catch { /* private mode */ } }
 

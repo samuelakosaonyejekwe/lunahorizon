@@ -39,7 +39,7 @@ margin, DSN elevation mask) and power system (array type, area, efficiency, load
 ## Sites included
 
 * **Artemis III candidate regions (Oct 2024 list of 9)** plus Connecting Ridge and Peak near Shackleton. Published points are used where
-  they exist (Gracy & Lee, LPSC 2024; Nobile Rim 2 DM2). Otherwise the app uses a representative point: the best-lit 1 km cell near the approximate
+  they exist (Gracy & Lee, LPSC 2024; Nobile Rim 2 DM2; the LROC region centre for Mons Mouton Plateau). Otherwise the app uses a representative point: the 1 km cell with the most sunlight and Sun-and-Earth time near the approximate
   region center. These points are labeled in the app.
 * **CLPS missions:** IM-1 Odysseus, IM-2 Athena, Blue Ghost M1 (Mare Crisium), and the Schrödinger basin (far side, Blue Ghost M2 region).
 * **References:** Shackleton floor (a permanently shadowed region), the LCROSS impact site, and Apollo 11.
@@ -49,14 +49,34 @@ margin, DSN elevation mask) and power system (array type, area, efficiency, load
 
 * Ephemeris: Meeus ELP-2000/82 (truncated) Moon, Meeus Sun with aberration, precession to J2000, and the IAU 2009 lunar orientation model
   (≈ Mean-Earth/Polar-Axis frame), with topocentric parallax.
-* Validated against **JPL DE421 + MOON_ME_DE421** (Skyfield) for 240 random site-times:
-  Sun elevation mean 0.0015°, max 0.009°; Earth elevation mean 0.0008°, max 0.003°.
+* Validated against **JPL DE421 + MOON_ME_DE421** and JPL's current **DE440 + MOON_ME_DE440_ME421** (Skyfield) for 240 random
+  site-times: Sun elevation mean 0.0015°, max 0.009°; Earth elevation mean 0.0008°, max 0.003° (the same against both).
   The solar disk's radius is 0.27°, so these errors are far smaller than the Sun itself. Run `npm test` to reproduce.
 * Terrain: NASA LRO **LOLA** polar DEMs (PDS Geosciences Node): `LDEM_875S_5M` and `LDEM_80S_20M` windows near each site,
   `LDEM_80S_80M` and `LDEM_75S_240M` beyond. Horizons are ray-traced out to 260 km allowing for the Moon's curvature,
   for sensors 2 m and 10 m above the ground.
 
 This is a planning and education tool; confirm flight operations with SPICE-based tools.
+
+## Privacy and security
+
+No accounts, cookies, tracking or server: everything runs in the browser, and settings, your own sites and offline
+files stay on your device. See [SECURITY.md](SECURITY.md) for the protections in place and how to report a problem.
+
+## Fresh NASA data
+
+* **Live geometry:** Sun, Earth, relay and DSN positions are computed on each visitor's device for any moment, including
+  right now. No server or download is involved.
+* **Terrain:** the app's data is built from NASA's LOLA files at the PDS Geosciences Node; `tools/nasa_sources.json`
+  records the versions it was built from, and Learn → Methods shows their dates.
+* **Following NASA's updates:** every 6 hours the deploy workflow (`.github/workflows/pages.yml`) runs on GitHub's servers
+  and asks NASA's server whether any of those files has changed (`python3 tools/nasa_sources.py --check`). When one has,
+  it downloads NASA's current files, rebuilds every map, horizon and terrain tile, re-picks the region points, runs the
+  tests and republishes the app; installed copies then replace their saved data. It needs no computer of yours and
+  commits nothing. *Actions → Deploy to GitHub Pages → Run workflow* with "rebuild" ticked forces a full rebuild.
+  To bring the repository's own copy of the data up to date afterwards, run the rebuild steps below and commit.
+* GitHub pauses scheduled workflows in a public repository after 60 days without any repository activity; it emails
+  the owner first, and the workflow's page has an *Enable workflow* button.
 
 ## Run it
 
@@ -76,19 +96,29 @@ Everything in `app/data/` is generated from public NASA data. Python 3.10+ with 
 mkdir -p raw && cd raw
 B=https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/polar/img
 curl -O $B/ldem_80s_80m.img && curl -O $B/ldem_75s_240m.img && cd ..
-# 2. 5 m and 20 m windows around each site (HTTP range requests; resumable)
-python3 tools/fetch_windows.py
-# 3. Site horizons (2 m and 10 m), basemaps, browser DEMs, terrain tiles, 3D tiles
-python3 tools/build_data.py && python3 tools/build_dem_tiles.py && python3 tools/build_3d.py
-# 4. Sunlight / Earth-visibility maps for 2026–2044 (all CPU cores, ~30 min), then the map layers
-node tools/overlay_years.mjs && python3 tools/build_years.py
-# 5. Optional: regenerate the JPL DE421 accuracy reference used by the tests (needs skyfield + NAIF kernels)
-python3 tools/validate.py <kernel-dir>
+# 2. 5 m and 20 m windows around each site (HTTP range requests; resumable), site horizons (2 m and 10 m),
+#    basemaps, browser DEMs, terrain tiles and 3D tiles
+npm run data
+# 3. Sunlight / Earth-visibility maps for 2026–2044 (all CPU cores, ~30 min), the map layers, and a check that every
+#    representative region point still matches its selection rule
+npm run maps
+# 4. Optional: regenerate the JPL accuracy references used by the tests (needs skyfield + NAIF kernels)
+python3 tools/validate.py <kernel-dir> de421 && python3 tools/validate.py <kernel-dir> de440
+# 5. Optional: redraw the app icons
+python3 tools/make_icons.py
 ```
 
-The site list (with the chosen representative points) is `tools/sites.py`. After changing anything in `app/data/`,
-bump `DATA` in `app/sw.js` so installed copies replace their offline data (app code refreshes on its own; terrain users downloaded survives code updates).
-After changing any file in `app/`, run `python3 tools/build_offline_manifest.py` to refresh the "Save everything for offline" list (`app/data/offline.json`); `npm test` fails if it is out of date.
+The site list is `tools/sites.py`. Artemis III regions without a published point use a representative point: the 1 km map
+cell with the highest 2027 sunlight % plus Sun-and-Earth % within a set radius of the approximate region centre;
+`python3 tools/pick_region_points.py` recomputes all of them and fails if one no longer matches.
+
+After changing any file in `app/`, run `python3 tools/build_offline_manifest.py`. It refreshes the "Save everything for
+offline" list (`app/data/offline.json`) and bumps the service worker's cache names from content hashes: the app shell
+cache when code changes, the data cache only when data changes, so installed copies update while terrain users
+downloaded survives code updates. `npm test` fails if this step was skipped.
+
+A rebuild from the same inputs reproduces `app/data/` byte for byte, except the two JPEG basemaps, whose pixels can
+differ by a few levels between Pillow/libjpeg versions.
 
 ## Project layout
 
@@ -114,8 +144,9 @@ tools/               data pipeline, validation and tests
 ## Data sources
 
 * LOLA GDR polar DEMs: https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/polar/
-* JPL DE421 and lunar PA kernels (validation only): https://naif.jpl.nasa.gov/
-* NASA Artemis III candidate regions (Oct 2024 update); LPSC 2024 #1695 (Gracy & Lee); LPSC 2026 #1901 (George et al.)
+* JPL DE421 and DE440 ephemerides with their lunar orientation kernels (validation only): https://naif.jpl.nasa.gov/pub/naif/generic_kernels/
+* NASA Artemis III candidate regions (Oct 2024 update); LPSC 2024 #1695 (Gracy & Lee); LPSC 2026 #1901 (George et al., https://ntrs.nasa.gov/citations/20250011660), also the source of the 5.75–6.25-day Artemis III surface stay
+* Mons Mouton Plateau region centre (84.3°S, 30.6°E): LROC NAC Artemis III region mosaic `NAC_ROI_MOUTNPLTLOA` (https://data.lroc.im-ldi.com/lroc/view_rdr/NAC_ROI_MOUTNPLTLOA)
 
 ## License
 

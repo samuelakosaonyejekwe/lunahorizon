@@ -15,7 +15,8 @@
  "dem_far": {
   "half_m": 455000.0,
   "cell": 1600.0,
-  "n": 569
+  "n": 569,
+  "bytes": 556021
  },
  "overlay": {
   "half_m": 200000,
@@ -192,5 +193,11 @@
    18204,
    15452
   ]
+ },
+ "nasa_sources": {
+  "ldem_80s_80m.img": "Thu, 06 Jul 2017 13:48:41 GMT",
+  "ldem_75s_240m.img": "Thu, 06 Jul 2017 13:36:45 GMT",
+  "ldem_80s_20m.img": "Thu, 06 Jul 2017 13:47:16 GMT",
+  "ldem_875s_5m.img": "Thu, 06 Jul 2017 14:03:28 GMT"
  }
 }

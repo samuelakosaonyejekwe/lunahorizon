@@ -1,12 +1,13 @@
 """
-Builds the independent accuracy reference for the app's ephemeris: Sun and Earth azimuth/elevation seen from
-lunar surface sites, computed with JPL DE421 and the MOON_ME_DE421 body frame (Skyfield + NAIF kernels).
-tools/test.mjs compares app/js/astro.js against this file.
+Builds the independent accuracy references for the app's ephemeris: Sun and Earth azimuth/elevation seen from
+lunar surface sites, computed with JPL ephemerides and lunar body frames (Skyfield + NAIF kernels).
+tools/test.mjs compares app/js/astro.js against every reference.
 
-Usage: python3 tools/validate.py <kernel-dir>
-  <kernel-dir> must contain de421.bsp, moon_080317.tf and moon_pa_de421_1900-2050.bpc
-  (https://ssd.jpl.nasa.gov/ftp/eph/planets/bsp/ and https://naif.jpl.nasa.gov/pub/naif/generic_kernels/).
-Output: tools/fixtures/de421_reference.json (60 random instants in 2024-2036 at 4 sites = 240 cases).
+Usage: python3 tools/validate.py <kernel-dir> [de421|de440]   (default de421)
+  de421: de421.bsp, moon_080317.tf, moon_pa_de421_1900-2050.bpc, frame MOON_ME_DE421 (the LOLA-era reference)
+  de440: de440s.bsp, moon_de440_250416.tf, moon_pa_de440_200625.bpc, frame MOON_ME_DE440_ME421 (JPL's current ephemeris)
+  Kernels: https://naif.jpl.nasa.gov/pub/naif/generic_kernels/ (spk/planets, fk/satellites, pck)
+Output: tools/fixtures/<set>_reference.json (the same 60 random instants in 2024-2036 at 4 sites = 240 cases).
 """
 import datetime as dt
 import json
@@ -21,16 +22,27 @@ from skyfield.api import load
 from skyfield.planetarylib import PlanetaryConstants
 
 K = sys.argv[1]
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures', 'de421_reference.json')
+SET = sys.argv[2] if len(sys.argv) > 2 else 'de421'
+KERNELS = {
+    'de421': ('de421.bsp', 'moon_080317.tf', 'moon_pa_de421_1900-2050.bpc', 'MOON_ME_DE421'),
+    'de440': ('de440s.bsp', 'moon_de440_250416.tf', 'moon_pa_de440_200625.bpc', 'MOON_ME_DE440_ME421'),
+}
+BSP, TF, BPC, FRAME = KERNELS[SET]
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures', f'{SET}_reference.json')
 R_KM = MOON_R_M / 1000
 SITES = [(-89.53432, 209.94767), (-84.7906, 29.1957), (-85.4, 36.0), (18.56, 61.81)]
 
 ts = load.timescale()
-eph = load(os.path.join(K, 'de421.bsp'))
+eph = load(os.path.join(K, BSP))
 pc = PlanetaryConstants()
-pc.read_text(load(os.path.join(K, 'moon_080317.tf')))
-pc.read_binary(load(os.path.join(K, 'moon_pa_de421_1900-2050.bpc')))
-frame = pc.build_frame_named('MOON_ME_DE421')
+pc.read_text(load(os.path.join(K, TF)))
+pc.read_binary(load(os.path.join(K, BPC)))
+# Skyfield keeps the last segment per body; the DE440 orientation file has two (1550-2426, 2426-2650), so pick the one
+# that covers the test instants (Skyfield's segment map is internal, hence the explicit choice)
+for seg in pc._binary_files[-1].segments:
+    if seg.initial_jd <= 2460000 and seg.final_jd >= 2465000:
+        pc._segment_map[seg.body] = seg
+frame = pc.build_frame_named(FRAME)
 moon, earth, sun = eph['moon'], eph['earth'], eph['sun']
 
 rng = np.random.default_rng(1)

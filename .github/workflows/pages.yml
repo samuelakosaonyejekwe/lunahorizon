@@ -1,10 +1,21 @@
 name: Deploy to GitHub Pages
 
+# Runs on GitHub's servers: on every push to main, and every 6 hours to check whether NASA has published new versions of
+# the LOLA terrain files the app is built from (tools/nasa_sources.py). When it has, all data is rebuilt from NASA's
+# current files before testing and publishing, so the live app follows NASA's data. Nothing is committed by this workflow.
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: '23 */6 * * *'
   workflow_dispatch:
+    inputs:
+      rebuild:
+        description: Rebuild all data from NASA's current files even if nothing changed
+        type: boolean
+        default: false
 
+# least privilege: read the code, publish Pages; every action is pinned to an exact commit (version in the comment)
 permissions:
   contents: read
   pages: write
@@ -15,28 +26,65 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  check:
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.nasa.outputs.changed }}
     steps:
       - run: git config --global init.defaultBranch main   # silences git's default-branch hint in the checkout log
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # this workflow never pushes: keep no token on disk
+      - id: nasa
+        run: python3 tools/nasa_sources.py --check
+
+  build:
+    needs: check
+    # a scheduled check deploys only when NASA's data changed; pushes and manual runs always deploy
+    # (!cancelled(): a failed NASA check never blocks a push deploy)
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.check.outputs.changed == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - run: git config --global init.defaultBranch main
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # this workflow never pushes: keep no token on disk
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+      - name: Rebuild all data from NASA's current files
+        if: needs.check.outputs.changed == 'true' || github.event.inputs.rebuild == 'true'
+        run: |
+          pip install --quiet numpy pillow
+          mkdir -p raw
+          B=https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/polar/img
+          curl -fsS --retry 5 -o raw/ldem_80s_80m.img $B/ldem_80s_80m.img
+          curl -fsS --retry 5 -o raw/ldem_75s_240m.img $B/ldem_75s_240m.img
+          cd app/data && rm -rf sites.json horizons10.json meta.json basemap.jpg basemap_zoom.jpg dem_far.bin.gz dem_tiles dem3d_fine.bin.gz dem3d_coarse.bin.gz overlay.png overlay_range.png years && cd ../..
+          python3 tools/fetch_windows.py
+          python3 tools/build_data.py
+          python3 tools/build_dem_tiles.py
+          python3 tools/build_3d.py
+          node tools/overlay_years.mjs
+          python3 tools/build_years.py
+          # region points follow the new maps; then the horizons are traced at the updated points
+          python3 tools/pick_region_points.py --update
+          python3 tools/build_data.py
+          python3 tools/nasa_sources.py --record
+          python3 tools/build_offline_manifest.py
       - run: node tools/test.mjs
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: app
 
   deploy:
-    needs: test
+    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - run: git config --global init.defaultBranch main   # silences git's default-branch hint in the checkout log
-      - uses: actions/checkout@v7
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: app
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

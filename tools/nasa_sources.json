@@ -1,0 +1,30 @@
+{
+ "ldem_80s_80m.img": {
+  "url": "https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/polar/img/ldem_80s_80m.img",
+  "used_for": "LOLA 80 m south polar DEM: site horizons, browser terrain, 3D view",
+  "bytes": 115520000,
+  "last_modified": "Thu, 06 Jul 2017 13:48:41 GMT",
+  "etag": "\"80c28c935ef6d21:0\""
+ },
+ "ldem_75s_240m.img": {
+  "url": "https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/polar/img/ldem_75s_240m.img",
+  "used_for": "LOLA 240 m south polar DEM: site horizons, yearly maps, 3D view",
+  "bytes": 29062688,
+  "last_modified": "Thu, 06 Jul 2017 13:36:45 GMT",
+  "etag": "\"80d4c7e85cf6d21:0\""
+ },
+ "ldem_80s_20m.img": {
+  "url": "https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/polar/img/ldem_80s_20m.img",
+  "used_for": "LOLA 20 m south polar DEM: high-resolution windows around sites",
+  "bytes": 1848320000,
+  "last_modified": "Thu, 06 Jul 2017 13:47:16 GMT",
+  "etag": "\"0cae2605ef6d21:0\""
+ },
+ "ldem_875s_5m.img": {
+  "url": "https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/polar/img/ldem_875s_5m.img",
+  "used_for": "LOLA 5 m south polar DEM: high-resolution windows near the pole",
+  "bytes": 1840545792,
+  "last_modified": "Thu, 06 Jul 2017 14:03:28 GMT",
+  "etag": "\"0383ea460f6d21:0\""
+ }
+}

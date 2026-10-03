@@ -279,7 +279,7 @@ export function mount(root, params) {
       h('header', h('h2', 'About this site')),
       h('p', site.note || ''),
       h('p.muted', { style: { fontSize: '13px' } },
-        `Coordinates: ${fmtLL(site.lat, site.lon)} (${site.precision === 'published' ? 'published' : site.precision === 'region' ? 'representative point: the best-lit 1 km map cell near the approximate region center' : site.precision === 'custom' ? 'user defined' : 'feature center'}). Source: ${site.src || '—'}.`),
+        `Coordinates: ${fmtLL(site.lat, site.lon)} (${site.precision === 'published' ? 'published' : site.precision === 'region' ? 'representative point: the 1 km map cell with the most sunlight and Sun-and-Earth time near the approximate region center' : site.precision === 'custom' ? 'user defined' : 'feature center'}). Source: ${site.src || '—'}.`),
       site.hz ? h('p.muted', { style: { fontSize: '13px' } }, `Terrain horizon traced over ${site.custom ? 'the 400 m / 1.6 km' : site.terrain.replace('LOLA ', '')} LOLA grids out to 260 km, 0.5° azimuth bins, ${site.hz2 ? settings.mastM : site.mast || 2} m sensor height. Highest ridge: ${Math.max(...site.hz).toFixed(2)}°.`)
         : h('p.muted', { style: { fontSize: '13px' } }, 'Outside the polar DEM: the horizon is modeled as a smooth sphere, so local hills are not included.'),
       site.custom ? h('button.btn.small', { onclick: () => { removeCustomSite(site.id); toast('Custom site removed'); location.hash = '#/map'; } }, icon(ICONS.trash), 'Remove custom site') : null,

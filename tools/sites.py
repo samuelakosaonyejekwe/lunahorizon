@@ -8,9 +8,10 @@ DEM_LIMIT_LAT = -79.5
 MOON_R_M = 1737400.0   # LOLA reference sphere (PDS label OFFSET); app/js/astro.js MOON_R_KM is the same value
 
 # precision: 'published' = coordinates from a published source; 'feature' = named-feature coordinates;
-# 'region' = representative point inside an Artemis III candidate region that has no published point. It is the
-# best-lit 1 km cell (2027 sunlight + Sun-and-Earth screening map) within 6-12 km of the approximate region centre
-# (approx_lat/approx_lon), chosen once and fixed here so every rebuild uses the same point.
+# 'region' = representative point inside an Artemis III candidate region that has no published point: the 1 km cell
+# with the highest 2027 sunlight % + Sun-and-Earth % (app/data/years/overlay_2027.png) within search_km of the
+# approximate region centre (approx_lat/approx_lon). tools/pick_region_points.py recomputes every one of them and
+# fails if a point here no longer matches; the points are fixed here so every rebuild uses the same ones.
 SITES = [
     dict(id='connecting-ridge', name='Connecting Ridge', group='Artemis', lat=-89.53432, lon=209.94767, precision='published',
          src='Gracy & Lee, LPSC 2024 #1695', note='Ridge linking Shackleton and de Gerlache; among the best-lit terrain on the Moon.'),
@@ -19,19 +20,22 @@ SITES = [
     dict(id='nobile-rim-2', name='Nobile Rim 2', group='Artemis', lat=-84.20156, lon=60.69989, precision='published',
          src='Evaluating potential landing sites for Artemis III (Acta Astronautica 2024), best point in DM2',
          note='One of the 9 Artemis III candidate regions (Oct 2024).'),
-    dict(id='mons-mouton', name='Mons Mouton', group='Artemis', lat=-84.40534, lon=31.02163, approx_lat=-84.6, approx_lon=31.0, precision='region',
+    dict(id='mons-mouton', name='Mons Mouton', group='Artemis', lat=-84.40534, lon=31.02163, approx_lat=-84.6, approx_lon=31.0, search_km=6, precision='region',
          src='IAU feature center 84.6°S 31.0°E', note='Broad flat-topped mountain; one of the 9 Artemis III candidate regions.'),
-    dict(id='malapert-massif', name='Malapert Massif', group='Artemis', lat=-85.99207, lon=2.1211, approx_lat=-86.0, approx_lon=0.0, precision='region',
+    dict(id='mons-mouton-plateau', name='Mons Mouton Plateau', group='Artemis', lat=-84.3, lon=30.6, precision='published',
+         src='LROC NAC Artemis III region mosaic NAC_ROI_MOUTNPLTLOA, centre 84.3°S 30.6°E',
+         note='Plateau on the north side of Mons Mouton; one of the 9 Artemis III candidate regions (Oct 2024).'),
+    dict(id='malapert-massif', name='Malapert Massif', group='Artemis', lat=-85.99207, lon=2.1211, approx_lat=-86.0, approx_lon=0.0, search_km=6, precision='region',
          src='Approximate region center', note='Tall massif with good Earth visibility; Artemis III candidate region.'),
-    dict(id='nobile-rim-1', name='Nobile Rim 1', group='Artemis', lat=-85.21763, lon=36.59349, approx_lat=-85.45, approx_lon=38.0, precision='region',
+    dict(id='nobile-rim-1', name='Nobile Rim 1', group='Artemis', lat=-85.21763, lon=36.59349, approx_lat=-85.45, approx_lon=38.0, search_km=8, precision='region',
          src='Approximate region center (west rim of Nobile)', note='Artemis III candidate region on the rim of Nobile crater.'),
-    dict(id='de-gerlache-rim-2', name='de Gerlache Rim 2', group='Artemis', lat=-88.70486, lon=-68.33404, approx_lat=-88.75, approx_lon=-68.0, precision='region',
+    dict(id='de-gerlache-rim-2', name='de Gerlache Rim 2', group='Artemis', lat=-88.70486, lon=-68.33404, approx_lat=-88.75, approx_lon=-68.0, search_km=6, precision='region',
          src='Approximate region center', note='Artemis III candidate region on the rim of de Gerlache crater.'),
-    dict(id='haworth', name='Haworth', group='Artemis', lat=-86.93494, lon=-23.11766, approx_lat=-86.9, approx_lon=-20.0, precision='region',
+    dict(id='haworth', name='Haworth', group='Artemis', lat=-86.93494, lon=-23.11766, approx_lat=-86.9, approx_lon=-20.0, search_km=6, precision='region',
          src='Approximate region center', note='Artemis III candidate region near Haworth crater.'),
-    dict(id='slater-plain', name='Slater Plain', group='Artemis', lat=-87.84871, lon=-130.64892, approx_lat=-87.9, approx_lon=-125.0, precision='region',
+    dict(id='slater-plain', name='Slater Plain', group='Artemis', lat=-87.84871, lon=-130.64892, approx_lat=-87.9, approx_lon=-125.0, search_km=8, precision='region',
          src='Approximate region center', note='Artemis III candidate region; plains near Slater crater.'),
-    dict(id='peak-near-cabeus-b', name='Peak near Cabeus B', group='Artemis', lat=-84.42709, lon=-58.04848, approx_lat=-84.3, approx_lon=-60.0, precision='region',
+    dict(id='peak-near-cabeus-b', name='Peak near Cabeus B', group='Artemis', lat=-84.42709, lon=-58.04848, approx_lat=-84.3, approx_lon=-60.0, search_km=8, precision='region',
          src='Approximate region center', note='Artemis III candidate region; high peak near Cabeus B.'),
     dict(id='im2-athena', name='IM-2 Athena (Mons Mouton)', group='CLPS', lat=-84.7906, lon=29.1957, precision='published',
          src='Intuitive Machines / LROC, landed 2025-03-06', note='CLPS lander; touched down on the Mons Mouton plateau.'),

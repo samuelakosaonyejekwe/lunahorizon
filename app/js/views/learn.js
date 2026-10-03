@@ -1,5 +1,5 @@
 // Learn: the physics of polar lighting and communications, with live demos, plus methods and data sources.
-import { h, getSite, engineOpts, fmtPct, fmtDur, startOfDayUTC } from '../ui.js';
+import { h, getSite, engineOpts, fmtPct, fmtDur, startOfDayUTC, store } from '../ui.js';
 import { ephemTable, siteSeries, summarize, DAY } from '../engine.js';
 import { timeline, colors } from '../charts.js';
 
@@ -65,7 +65,7 @@ export function mount(root, params) {
           P('So a ridge 1 km above you and 20 km away, which rises about 2.5° above your horizon once the Moon\'s curvature is allowed for, can hide the Sun for days. Move the slider toward the pole and watch the Sun\'s elevation collapse into a thin band around 0°.'),
           h('label.field', { style: { maxWidth: '420px' } }, h('span', 'Latitude', latOut), lat), demo1Box, demo1Info),
         sec('terrain', 'Terrain decides everything',
-          P('Because the Sun is always near the horizon, the local skyline controls the lighting. Crater floors such as Shackleton\'s are permanently shadowed regions (PSRs): they stay below 100 K and can trap water ice. Nearby ridges and peaks can be sunlit more than 80% of the time and are nicknamed "peaks of near-eternal light".'),
+          P('Because the Sun is always near the horizon, the local skyline controls the lighting. Crater floors such as Shackleton\'s are permanently shadowed regions (PSRs): they stay below 100 K and can trap water ice. Nearby ridges and peaks can be sunlit about 80% of the time and are nicknamed "peaks of near-eternal light".'),
           P('LunaHorizon traces the horizon at every site from NASA\'s Lunar Orbiter Laser Altimeter (LOLA) topography, out to 260 km in 720 directions. Here are the next 30 days at three contrasting spots:'),
           demo2,
           h('div.callout', 'Ridges and crater floors only a few kilometres apart can differ by 100 percentage points in sunlight. That is why site selection is done point by point.')),
@@ -95,12 +95,15 @@ export function mount(root, params) {
         sec('methods', 'Methods & accuracy',
           h('ul',
             h('li', h('b', 'Ephemeris: '), 'geocentric Moon from Meeus\' truncated ELP-2000/82 series; Sun from Meeus ch. 25 with aberration; precession to J2000; IAU WGCCRE 2009 lunar orientation (approximating the Mean-Earth/Polar-Axis frame of the LOLA products). Topocentric parallax is included for both bodies.'),
-            h('li', h('b', 'Validation: '), 'compared with JPL DE421 plus the MOON_ME_DE421 frame (via Skyfield) for 240 random site-times over 2024–2036 at four sites. Sun elevation: mean |error| 0.0015°, max 0.009°. Earth elevation: mean 0.0008°, max 0.003°.'),
+            h('li', h('b', 'Validation: '), 'compared with JPL DE421 plus the MOON_ME_DE421 frame, and with JPL\'s current DE440 plus MOON_ME_DE440_ME421 (via Skyfield), for 240 random site-times over 2024–2036 at four sites. Sun elevation: mean |error| 0.0015°, max 0.009°. Earth elevation: mean 0.0008°, max 0.003°, the same against both.'),
             h('li', h('b', 'Terrain: '), 'LOLA GDR polar stereographic DEMs (PDS). Curated site horizons are ray-traced for sensors 2 m and 10 m above the ground, over 1440 azimuths out to 260 km with the Moon\'s curvature, layering the finest data first: 5 m (LDEM_875S_5M, within 4 km, sites south of 87.5°S), 20 m (LDEM_80S_20M, within 15 km), then 80 m and 240 m. They are reduced to 720 bins by taking the maximum. Horizons for your own sites are traced in the browser from 400 m and 1.6 km resamplings.'),
             h('li', h('b', 'Maps: '), 'sunlight and Earth-visibility percentages for every year of one 18.6-year lunar cycle (2026–2044), in 6-hour steps on a 1 km grid (160,000 cells), plus their average and the year-to-year swing. They use 2° horizon sampling from the 240 m DEM out to 200 km and the same validated ephemeris, so they are screening maps, not certification products. Finding: sunlight varies little between years (a typical cell swings about 3 percentage points); the season within a year matters far more.'),
             h('li', h('b', 'Relay orbits: '), 'representative geometry for coverage studies, not official ephemerides: a Keplerian frozen orbit (a = 6,143 km, e = 0.6, i = 57.8°, apolune over the south pole) and a body-fixed ellipse approximating the 9:2 NRHO (perilune 3,200 km over the north pole, apolune 70,000 km over the south pole). A link needs the relay above the skyline by the set margin and a clear line from the relay to Earth.'),
             h('li', h('b', 'Visibility rules: '), '"Sunlit" means at least the set fraction of the solar disk is above the terrain (default 50%). "Earth in view" means Earth\'s center clears the terrain by the set margin. DTE additionally needs a DSN complex with the Moon above its elevation mask.'),
-            h('li', h('b', 'Site coordinates: '), 'published points where available (Gracy & Lee LPSC 2024; IM-1/IM-2/Blue Ghost landing sites). For Artemis III regions without published points, the app uses a representative point: the best-lit 1 km map cell near the approximate region center. These are labeled as such.'),
+            h('li', h('b', 'Site coordinates: '), 'published points where available (Gracy & Lee LPSC 2024; the LROC region centre for Mons Mouton Plateau; IM-1/IM-2/Blue Ghost landing sites). For Artemis III regions without published points, the app uses a representative point: the 1 km map cell with the most sunlight and Sun-and-Earth time near the approximate region center. These are labeled as such.'),
+            h('li', h('b', 'Data freshness: '), 'Sun, Earth, relay and DSN positions are computed live on your device for any moment, including right now. The terrain comes from NASA\'s LOLA archive at the PDS Geosciences Node',
+              store.meta?.nasa_sources ? ` (files as published on ${[...new Set(Object.values(store.meta.nasa_sources).map((d) => new Date(d).toISOString().slice(0, 10)))].join(', ')})` : '',
+              '. Every 6 hours GitHub\'s servers ask NASA whether any of these files has changed; if one has, all maps, horizons and terrain are rebuilt from the new files and the app updates itself on every device.'),
             h('li', h('b', 'Limitations: '), 'no local shadows smaller than the DEM cell, a spherical horizon outside polar DEM coverage, no refraction (the Moon has no atmosphere), and TT − UTC fixed at 69.184 s (no leap seconds after 2016). For flight operations, confirm with SPICE-based tools.'))),
         sec('glossary', 'Glossary',
           h('dl.gloss',

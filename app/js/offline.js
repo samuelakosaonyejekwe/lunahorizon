@@ -25,7 +25,7 @@ export async function refresh() {
   try {
     const m = await manifest();
     const have = new Set();
-    for (const name of await caches.keys()) {
+    for (const name of (await caches.keys()).filter((k) => k.startsWith('lh-'))) {   // this app's caches only
       if (leaving) return state;
       for (const req of await (await caches.open(name)).keys()) have.add(new URL(req.url).pathname);
     }

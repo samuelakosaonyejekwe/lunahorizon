@@ -4,8 +4,8 @@
 // Geocentric Sun: Meeus ch.25 plus an aberration correction.
 // Lunar orientation: IAU WGCCRE 2009 rotation model (Archinal et al. 2011), which
 // approximates the Mean-Earth/Polar-Axis frame that the LOLA DEMs use.
-// Checked against JPL DE421 with the MOON_ME_DE421 frame (tools/validate.py → tools/fixtures, run by tools/test.mjs):
-// over 240 site-times (2024–2036) Sun elevation error is 0.0015° mean / 0.009° max, Earth 0.0008° mean / 0.003° max.
+// Checked against JPL DE421 (MOON_ME_DE421 frame) and JPL's current DE440 (MOON_ME_DE440_ME421) via tools/validate.py → tools/fixtures,
+// run by tools/test.mjs: over 240 site-times (2024–2036) Sun elevation error is 0.0015° mean / 0.009° max, Earth 0.0008° mean / 0.003° max.
 
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;

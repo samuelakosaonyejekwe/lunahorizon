@@ -1,5 +1,5 @@
 // App shell: router, settings dialog, theme, share, service worker.
-import { $, $$, h, settings, updateSettings, loadSites, toast, setUrlOwner } from './ui.js';
+import { $, $$, h, settings, updateSettings, loadSites, toast, setUrlOwner, SETTING_RANGES } from './ui.js';
 import { RELAYS } from './astro.js';
 import { installSection, wireInstallButton } from './install.js';   // also captures the browser's install prompt early
 import { offlinePanel, wireNetworkIndicator } from './offline.js';
@@ -15,7 +15,7 @@ const ROUTES = {
 };
 const TITLES = { '': 'Home', map: 'Site Map', site: 'Explorer', compare: 'Compare Sites', planner: 'Landing Window Finder', learn: 'Learn', '3d': '3D South Pole' };
 
-let current = null, currentKey = null, navSeq = 0;
+let current = null, currentKey = null, navSeq = 0, shownSeq = 0;
 const main = $('#main');
 
 function parseHash() {
@@ -30,7 +30,9 @@ async function route() {
   // The whole hash is the key: in-page state changes use history.replaceState, which fires no hashchange,
   // so a hashchange with a new query is a real navigation (a shared link, a button) and must remount.
   const key = location.hash || '#/';
-  if (key === currentKey && current) { current.update?.(params); return; }
+  // Same page as the one on screen, and no other page still loading: just update it. (While another page loads, going
+  // back to the current one must still win, or the slower page would mount under this page's URL.)
+  if (key === currentKey && current && shownSeq === navSeq) { current.update?.(params); return; }
   const loader = ROUTES[name] || ROUTES[''];
   const my = ++navSeq;
   setUrlOwner(null);              // the old page may no longer touch the URL
@@ -42,14 +44,15 @@ async function route() {
   const page = h('div.page');
   main.replaceChildren(page);
   document.title = `${TITLES[name] || 'Home'} · LunaHorizon`;
-  currentKey = key;
+  currentKey = key; shownSeq = my;
   setUrlOwner(ROUTES[name] ? name : '');
   current = mod.mount(page, params) || {};
   if (!location.hash.includes('?')) window.scrollTo(0, 0);
 }
 
 // ------------------------------------------------------------------ settings dialog
-function num(label, key, min, max, step, unit, hint) {
+function num(label, key, unit, hint) {
+  const [min, max, step] = SETTING_RANGES[key];
   const out = h('output', fmtV(settings[key]));
   function fmtV(v) { return `${v}${unit || ''}`; }
   const inp = h('input', { type: 'range', min, max, step, value: settings[key], 'aria-label': label,
@@ -73,24 +76,24 @@ function openSettings() {
           h('label.field', h('span', 'Solar array & antenna height'), h('select', { onchange: (e) => updateSettings({ mastM: +e.target.value }) },
             [[2, '2 m above ground (lander deck)'], [10, '10 m above ground (mast or tower)']].map(([v, l]) => h('option', { value: v, selected: settings.mastM === v }, l))),
             h('small', 'Nearby slopes block a low Sun; a taller mast sees past them')),
-          num('Sun counts as "up" at', 'sunMinFrac', 0.05, 1, 0.05, '', 'Fraction of the solar disk above terrain'),
-          num('Earth terrain clearance', 'earthMarginDeg', 0, 3, 0.25, '°', 'Line-of-sight margin for the antenna'),
-          num('DSN antenna mask', 'dsnMinEl', 0, 25, 1, '°', 'Min Moon elevation at a DSN station')),
+          num('Sun counts as "up" at', 'sunMinFrac', '', 'Fraction of the solar disk above terrain'),
+          num('Earth terrain clearance', 'earthMarginDeg', '°', 'Line-of-sight margin for the antenna'),
+          num('DSN antenna mask', 'dsnMinEl', '°', 'Min Moon elevation at a DSN station')),
         h('label.check', { style: { marginTop: '10px' } }, h('input', { type: 'checkbox', checked: settings.requireDSN, onchange: (e) => updateSettings({ requireDSN: e.target.checked }) }),
           'Direct-to-Earth requires a Deep Space Network station in view')),
       h('fieldset', h('legend', 'Relay satellite'),
         h('div.formgrid',
           h('label.field', h('span', 'Relay orbiter'), sel('relay', Object.entries(RELAYS).map(([k, r]) => [k, r.name]))),
-          num('Relay terrain clearance', 'relayMaskDeg', 0, 10, 0.5, '°', 'Min angle above the skyline')),
+          num('Relay terrain clearance', 'relayMaskDeg', '°', 'Min angle above the skyline')),
         h('p.muted', { style: { fontSize: '12px', margin: '8px 0 0' } }, 'Representative orbits for coverage studies, not official ephemerides. With a relay, communications count when either Earth or the relay (which must itself see Earth) is in view.')),
       h('fieldset', h('legend', 'Power system'),
         h('div.formgrid',
           h('label.field', h('span', 'Solar array'), sel('panel', [['vtrack', 'Vertical, Sun-tracking'], ['vfixed', 'Vertical, fixed azimuth'], ['horizontal', 'Horizontal (deck)']])),
-          num('Array azimuth (fixed)', 'panelAz', 0, 359, 1, '°'),
-          num('Array area', 'panelArea', 0.5, 20, 0.5, ' m²'),
-          num('Cell efficiency', 'panelEff', 0.1, 0.4, 0.01, ''),
-          num('Platform load', 'loadW', 10, 2000, 10, ' W'),
-          num('Battery (usable)', 'batteryWh', 0, 20000, 100, ' Wh'))),
+          num('Array azimuth (fixed)', 'panelAz', '°'),
+          num('Array area', 'panelArea', ' m²'),
+          num('Cell efficiency', 'panelEff', ''),
+          num('Platform load', 'loadW', ' W'),
+          num('Battery (usable)', 'batteryWh', ' Wh'))),
       h('fieldset', h('legend', 'Install as an app'), installSection()),
       h('fieldset', h('legend', 'Offline & airplane mode'), offlinePanel()),
       h('div.row', h('button.btn', { onclick: () => { localStorage.removeItem('lh.settings'); location.reload(); } }, 'Reset to defaults'),
