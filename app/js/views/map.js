@@ -36,8 +36,9 @@ function loadImg(src) {
 export function mount(root) {
   const meta = store.meta || {};
   const q = query();
-  const st = { layer: q.layer || 'sun', year: q.year || 'mean', cx: 0, cy: 0, scale: null, sel: null, overlayData: null, rangeData: null, base: null, zoomImg: null, showLabels: true };
   const yrs = meta.overlay_years;
+  const yearOk = (y) => yrs && /^\d{4}$/.test(y) && +y >= yrs.year0 && +y < yrs.year0 + yrs.years;   // links are user input
+  const st = { layer: LAYERS.some(([k]) => k === q.layer) ? q.layer : 'sun', year: yearOk(q.year) ? q.year : 'mean', cx: 0, cy: 0, scale: null, sel: null, overlayData: null, rangeData: null, base: null, zoomImg: null, showLabels: true };
 
   const wrap = h('div.mapwrap');
   const layerSeg = h('div.seg', LAYERS.map(([k, l]) => h('button', { class: st.layer === k ? 'on' : '', onclick: (e) => { st.layer = k; [...layerSeg.children].forEach((b) => b.classList.toggle('on', b === e.target)); setQuery({ layer: k, year: st.year === 'mean' ? null : st.year }); if (yearSel) yearSel.disabled = k === 'range'; legendUpdate(); map.redraw(); } }, l)));
@@ -309,6 +310,7 @@ export function mount(root) {
     clearTimeout(st.cardTimer); st.cardTimer = setTimeout(() => { card.style.pointerEvents = ''; }, 400);
   }
 
+  let gone = false;
   async function analyze(lat, lon) {
     const id = `custom-${lat.toFixed(4)}_${lon.toFixed(4)}`;
     const name = `Custom ${Math.abs(lat).toFixed(2)}°${lat < 0 ? 'S' : 'N'} ${Math.abs(((lon + 540) % 360) - 180).toFixed(2)}°${(((lon + 540) % 360) - 180) < 0 ? 'W' : 'E'}`;
@@ -323,7 +325,7 @@ export function mount(root) {
       const res = await compute({ type: 'horizon', lat, lon, mast, base: new URL('.', location.href).href, meta }, (m) => { busy.lastChild.textContent = m; });
       addCustomSite({ id, name, lat, lon, elev_m: Math.round(res.h0), hz: res.hz, mast, terrain: 'LOLA 400 m + 1.6 km (in-browser)', note: `User-defined site; horizon traced in your browser from LOLA terrain for a sensor ${mast} m above the ground.` });
       toast('Terrain horizon computed. Site saved on this device.');
-      location.hash = `#/site/${id}`;
+      if (!gone) location.hash = `#/site/${id}`;
     } catch (err) {
       // offline (airplane mode, no signal): only terrain downloaded on an earlier visit is available
       const net = !navigator.onLine || /fetch|load failed|network|: 503/i.test(err.message);
@@ -365,5 +367,5 @@ export function mount(root) {
   if (yrs) readImg('data/overlay_range.png').then((d) => { st.rangeData = d; map.redraw(); }).catch(() => {});
   if (yearSel) yearSel.disabled = st.layer === 'range';
 
-  return { unmount() { map.destroy(); clearTimeout(st.cardTimer); } };
+  return { unmount() { gone = true; map.destroy(); clearTimeout(st.cardTimer); } };
 }

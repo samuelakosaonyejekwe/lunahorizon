@@ -98,10 +98,15 @@ app/                 static web app (deploy this)
   css/app.css        design system (light/dark tokens, responsive)
   js/astro.js        ephemeris: Moon, Sun, lunar orientation, topocentric geometry, DSN
   js/engine.js       visibility, disk fractions, power/battery model, statistics, window scan
-  js/worker.js       Web Worker: multi-site scans, in-browser terrain horizon tracing
+  js/jobs.js         heavy jobs: multi-site scans, 19-year statistics, in-browser terrain horizon tracing
+  js/worker.js       Web Worker entry for jobs.js (the page runs jobs.js itself where module workers are missing)
+  js/gz.js           gzip decoding (built-in DecompressionStream, else vendor/fflate.js)
   js/charts.js       canvas renderers: panorama, sky dome, timeline, swimlanes, heatmap
+  js/install.js      install-as-an-app button and per-browser steps
+  js/offline.js      save everything for offline use, Offline badge
   js/views/*.js      pages (lazy-loaded)
-  data/              sites + horizons, basemaps, overlay maps, compressed DEMs
+  data/              sites + horizons, basemaps, overlay maps, compressed DEMs, offline.json file list
+  vendor/fflate.js   fallback gzip decoder (MIT, see fflate.LICENSE)
   sw.js              offline cache
 tools/               data pipeline, validation and tests
 ```
@@ -111,3 +116,7 @@ tools/               data pipeline, validation and tests
 * LOLA GDR polar DEMs: https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/polar/
 * JPL DE421 and lunar PA kernels (validation only): https://naif.jpl.nasa.gov/
 * NASA Artemis III candidate regions (Oct 2024 update); LPSC 2024 #1695 (Gracy & Lee); LPSC 2026 #1901 (George et al.)
+
+## License
+
+Code: MIT, see [LICENSE](LICENSE). NASA data products (LOLA, ephemerides) are public domain; fflate is MIT.

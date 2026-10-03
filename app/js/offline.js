@@ -52,15 +52,20 @@ export async function saveAll() {
     for (let i = 0; i < urls.length; i += 20) {
       const batch = urls.slice(i, i + 20);
       const res = await new Promise((resolve) => {
+        let timer;
+        const finish = (r) => { clearTimeout(timer); navigator.serviceWorker.removeEventListener('message', onMsg); resolve(r); };
+        // no reply within 90 s (service worker replaced by an update, or the browser stopped it): report and let the user retry
+        const arm = () => { clearTimeout(timer); timer = setTimeout(() => finish({ failed: batch.length, timedOut: true }), 90000); };
         const onMsg = (e) => {
           if (e.data?.type !== 'save-offline') return;
-          state.done = i + e.data.done; notify();
-          if (e.data.finished) { navigator.serviceWorker.removeEventListener('message', onMsg); resolve(e.data); }
+          state.done = i + e.data.done; notify(); arm();
+          if (e.data.finished) finish(e.data);
         };
         navigator.serviceWorker.addEventListener('message', onMsg);
-        sw.postMessage({ type: 'save-offline', urls: batch });
+        arm(); sw.postMessage({ type: 'save-offline', urls: batch });
       });
       state.failed += res.failed;
+      if (res.timedOut) break;
     }
   } catch (e) { state.failed = state.failed || 1; }
   state.busy = false;
@@ -73,7 +78,10 @@ const mb = (b) => `${(b / 1e6).toFixed(1)} MB`;
 /** The "Offline & airplane mode" panel used in the Install dialog and in Settings */
 export function offlinePanel() {
   const box = h('div.offpanel');
+  let shown = false;
   const render = () => {
+    if (shown && !box.isConnected) { listeners.delete(render); return; }   // Settings closed and rebuilt: drop the old panel
+    shown = box.isConnected;
     if (!supported()) {
       box.replaceChildren(h('p', { style: { margin: 0 } }, 'This browser cannot keep the app for offline use. Use Safari on iOS 11.3 or newer, or a current Chrome, Edge, Firefox or Samsung Internet.'));
       return;

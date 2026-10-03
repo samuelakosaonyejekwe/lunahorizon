@@ -5,3 +5,6 @@ __pycache__/
 submission/*.md
 voiceover_work/
 production_tools/
+
+# local deliverables (not published)
+/*.docx

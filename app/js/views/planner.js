@@ -207,10 +207,11 @@ export function mount(root) {
   function exportIcs() {
     if (!st.ops?.length) return toast('Run a search first');
     const f = (ms) => new Date(ms).toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+    const esc = (s) => String(s).replace(/[\\;,]/g, (c) => '\\' + c).replace(/\n/g, '\\n');   // RFC 5545 TEXT
     const ev = st.ops.map((o, i) => [
       'BEGIN:VEVENT', `UID:lunahorizon-${o.site.id}-${o.from}-${i}@lunahorizon`, `DTSTAMP:${f(Date.now())}`, `DTSTART:${f(o.from)}`, `DTEND:${f(o.to)}`,
-      `SUMMARY:Landing window: ${o.site.name}`,
-      `DESCRIPTION:Best landing ${new Date(o.bestT).toISOString()} · sunlit ${o.lit.toFixed(0)}% · comms ${o.comm.toFixed(0)}% · longest shadow ${o.maxDark.toFixed(0)} h (${st.c.label || 'custom'} profile, ${st.c.durH} h stay)`,
+      `SUMMARY:${esc(`Landing window: ${o.site.name}`)}`,
+      `DESCRIPTION:${esc(`Best landing ${new Date(o.bestT).toISOString()} · sunlit ${o.lit.toFixed(0)}% · comms ${o.comm.toFixed(0)}% · longest shadow ${o.maxDark.toFixed(0)} h (${st.c.label || 'custom'} profile, ${st.c.durH} h stay)`)}`,
       'END:VEVENT'].join('\r\n'));
     download('landing_windows.ics', ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//LunaHorizon//Landing Windows//EN', ...ev, 'END:VCALENDAR'].join('\r\n'), 'text/calendar');
   }

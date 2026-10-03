@@ -20,7 +20,8 @@ const main = $('#main');
 
 function parseHash() {
   const [path] = location.hash.replace(/^#\/?/, '').split('?');
-  const parts = path.split('/').filter(Boolean).map(decodeURIComponent);
+  const dec = (p) => { try { return decodeURIComponent(p); } catch { return p; } };   // a mangled link (bad % escape) must not stop the router
+  const parts = path.split('/').filter(Boolean).map(dec);
   return { name: parts[0] || '', params: parts.slice(1) };
 }
 

@@ -176,7 +176,7 @@ export function mount(root) {
   const q = query();
   const st = {
     t: isFinite(parseIso(q.t)) ? parseIso(q.t) : Math.floor(Date.now() / 600000) * 600000,
-    mode: +q.mode || 0, exag: +q.exag || 2, focus: q.site || 'connecting-ridge',
+    mode: [1, 2].includes(+q.mode) ? +q.mode : 0, exag: [1, 2, 3, 5].includes(+q.exag) ? +q.exag : 2,   // links are user input focus: q.site || 'connecting-ridge',
     az: 200, el: 28, dist: 60, target: [0, 0, 0],
     playing: false, speed: 6,
   };

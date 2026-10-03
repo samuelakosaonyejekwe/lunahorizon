@@ -30,7 +30,7 @@ export function mount(root) {
     start: isFinite(parseIso(q.start)) ? parseIso(q.start) : startOfDayUTC(Date.now()),
     days: Math.min(730, Math.max(1, Math.round(+q.days) || 90)),     // links are user input: keep the run bounded
     metric: { dte: 'comms' }[q.metric] || (['lit', 'earth', 'comms', 'both'].includes(q.metric) ? q.metric : 'lit'),
-    sort: q.sort || 'sunPct', dir: -1,
+    sort: COLS.some((c) => c[0] === q.sort) ? q.sort : 'sunPct', dir: -1,
     res: null, busy: false,
   };
   if (!st.sites.length) st.sites = PRESETS.artemis.slice(0, 6);
